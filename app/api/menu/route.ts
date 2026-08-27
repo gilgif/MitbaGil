@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { generateMonth } from '@/lib/menuLogic';
-import type { Recipe, UserSettings } from '@/lib/types';
+import type { Meal, UserSettings } from '@/lib/types';
 
 function getSupabase() {
   const cookieStore = cookies();
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabase
     .from('menu_days')
     .select(
-      '*, breakfast:recipes!menu_days_breakfast_recipe_id_fkey(*, ingredients:recipe_ingredients(*)), lunch:recipes!menu_days_lunch_recipe_id_fkey(*, ingredients:recipe_ingredients(*)), dinner:recipes!menu_days_dinner_recipe_id_fkey(*, ingredients:recipe_ingredients(*))'
+      '*, breakfast:meals!menu_days_breakfast_meal_id_fkey(*, components:meal_components(*, recipe:recipes(*, ingredients:recipe_ingredients(*)), simple_ingredients:simple_component_ingredients(*))), lunch:meals!menu_days_lunch_meal_id_fkey(*, components:meal_components(*, recipe:recipes(*, ingredients:recipe_ingredients(*)), simple_ingredients:simple_component_ingredients(*))), dinner:meals!menu_days_dinner_meal_id_fkey(*, components:meal_components(*, recipe:recipes(*, ingredients:recipe_ingredients(*)), simple_ingredients:simple_component_ingredients(*))), snack:meals!menu_days_snack_meal_id_fkey(*, components:meal_components(*, recipe:recipes(*, ingredients:recipe_ingredients(*)), simple_ingredients:simple_component_ingredients(*)))'
     )
     .eq('user_id', user.id)
     .gte('date', firstDay)
@@ -64,10 +64,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'year and month (0-indexed) are required' }, { status: 400 });
   }
 
-  const { data: recipes, error: recipeError } = await supabase
-    .from('recipes')
-    .select('*, ingredients:recipe_ingredients(*)');
-  if (recipeError) return NextResponse.json({ error: recipeError.message }, { status: 500 });
+  // Planning happens over MEALS (which may combine several components) rather than
+  // raw recipes. Components are pulled in so nutrition totals and shopping lists work.
+  const { data: meals, error: mealError } = await supabase
+    .from('meals')
+    .select(
+      '*, components:meal_components(*, recipe:recipes(*, ingredients:recipe_ingredients(*)), simple_ingredients:simple_component_ingredients(*))'
+    );
+  if (mealError) return NextResponse.json({ error: mealError.message }, { status: 500 });
 
   const { data: settings, error: settingsError } = await supabase
     .from('user_settings')
@@ -76,10 +80,13 @@ export async function POST(req: NextRequest) {
     .single();
   if (settingsError) return NextResponse.json({ error: settingsError.message }, { status: 500 });
 
-  const generated = generateMonth(recipes as Recipe[], year, month, {
+  const generated = generateMonth(meals as Meal[], year, month, {
     office_days: (settings as UserSettings).office_days,
     diet_mode: (settings as UserSettings).diet_mode,
     health_mode: (settings as UserSettings).health_mode,
+    daily_protein_target: (settings as UserSettings).daily_protein_target,
+    daily_cal_target: (settings as UserSettings).daily_cal_target,
+    strength_days: (settings as UserSettings).strength_days,
   });
 
   const firstDay = new Date(year, month, 1).toISOString().slice(0, 10);
@@ -92,12 +99,14 @@ export async function POST(req: NextRequest) {
     user_id: user.id,
     date: day.date,
     season: day.season,
-    breakfast_recipe_id: day.breakfast.id,
-    lunch_recipe_id: day.lunch.id,
-    dinner_recipe_id: day.dinner.id,
+    breakfast_meal_id: day.breakfast.id,
+    lunch_meal_id: day.lunch.id,
+    dinner_meal_id: day.dinner.id,
+    snack_meal_id: day.snack ? day.snack.id : null,
     breakfast_approved: false,
     lunch_approved: false,
     dinner_approved: false,
+    snack_approved: false,
   }));
 
   const { error: insertError } = await supabase.from('menu_days').insert(rows);
