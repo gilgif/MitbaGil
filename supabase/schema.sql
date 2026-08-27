@@ -72,7 +72,7 @@ create table user_settings (
   weight_kg numeric default 50,
   weight_goal_kg numeric default 47,
   daily_cal_target int default 1500,
-  daily_protein_target int default 90,
+  daily_protein_target int default 95,
 
   -- delivery / shopping cadence
   veg_days int[] default '{2,4}',           -- Tue=2, Thu=4
@@ -109,6 +109,17 @@ create table user_settings (
   notify_cook boolean default true,
   notify_eat boolean default true,
   notify_sport boolean default true,
+
+
+  -- ── Food preferences & dietitian guidance ──
+  -- These don't drive menu generation (the recipe pool is already curated to match them);
+  -- they're the single source of truth when searching for and adding NEW recipes.
+  disliked_foods text[] default '{"זיתים","ליצ׳י","כוסמת","פירות ים","שרימפס","צדפות","גבינת קוטג׳","איברים פנימיים"}',
+  preferred_fish text[] default '{"לברק","דניס","סלמון","טונה","לוקוס","פורל"}',
+  always_available_fruit text[] default '{"נקטרינות","אגסים","בננות","מנגו","אבוקדו","אבטיח (בעונה)","תותים (בעונה)"}',
+  dietitian_guidelines text[] default '{"הרבה ירקות ועלים ירוקים","ירקות מצליבים מאודים (ברוקולי, כרובית, כרוב)","דגנים לא-עמילניים — קינואה, שיבולת שועל","ביצים כמעט יומיות","הפחתת חיטה וסוכר","הימנעות ממטוגן","שמן זית ושמן קוקוס בלבד","העדפת חלבון רזה"}',
+  preferred_cuisine text default 'ירקות טריים בשפע · שמן זית · דגים · קטניות · עשבי תיבול וטעמים חמוצים',
+  lifestyle_notes text[] default '{"לא מבשלת בערב","ארוחת צהריים בימי משרד מוזמנת (סיבוס)","ילדה קטנה בבית — זמן בישול מוגבל","ארוחות עצלות עם ירקות קפואים הן אופציה לגיטימית"}',
 
   updated_at timestamptz not null default now()
 );
