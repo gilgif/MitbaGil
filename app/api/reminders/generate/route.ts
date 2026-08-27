@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { buildShoppingPlan } from '@/lib/shoppingLogic';
 import type { UserSettings } from '@/lib/types';
+import { mealIngredients } from '@/lib/mealLogic';
 import type { GeneratedDay } from '@/lib/menuLogic';
 
 function getSupabase() {
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
   const { data: menuDays, error: menuError } = await supabase
     .from('menu_days')
     .select(
-      '*, breakfast:recipes!menu_days_breakfast_recipe_id_fkey(*, ingredients:recipe_ingredients(*)), lunch:recipes!menu_days_lunch_recipe_id_fkey(*, ingredients:recipe_ingredients(*)), dinner:recipes!menu_days_dinner_recipe_id_fkey(*, ingredients:recipe_ingredients(*))'
+      '*, breakfast:meals!menu_days_breakfast_meal_id_fkey(*, components:meal_components(*, recipe:recipes(*, ingredients:recipe_ingredients(*)), simple_ingredients:simple_component_ingredients(*))), lunch:meals!menu_days_lunch_meal_id_fkey(*, components:meal_components(*, recipe:recipes(*, ingredients:recipe_ingredients(*)), simple_ingredients:simple_component_ingredients(*))), dinner:meals!menu_days_dinner_meal_id_fkey(*, components:meal_components(*, recipe:recipes(*, ingredients:recipe_ingredients(*)), simple_ingredients:simple_component_ingredients(*))), snack:meals!menu_days_snack_meal_id_fkey(*, components:meal_components(*, recipe:recipes(*, ingredients:recipe_ingredients(*)), simple_ingredients:simple_component_ingredients(*)))'
     )
     .eq('user_id', user.id)
     .gte('date', firstDay)
@@ -67,12 +68,14 @@ export async function POST(req: NextRequest) {
     breakfast: d.breakfast,
     lunch: d.lunch,
     dinner: d.dinner,
+    snack: d.snack,
   }));
   const approvals = (menuDays || []).map((d: any) => ({
     date: d.date,
     breakfast: d.breakfast_approved,
     lunch: d.lunch_approved,
     dinner: d.dinner_approved,
+    snack: d.snack_approved,
   }));
 
   const { trips } = buildShoppingPlan(days, approvals, userSettings, new Date(year, month, 1));
@@ -105,8 +108,12 @@ export async function POST(req: NextRequest) {
     const approval = approvals[idx];
     (['breakfast', 'lunch', 'dinner'] as const).forEach((slot) => {
       if (!approval[slot]) return;
-      const recipe = day[slot];
-      const hasFreezerMeat = recipe.ingredients?.some((i) => i.freshness === 'freezer-meat');
+      const meal = day[slot];
+      if (!meal) return;
+      // Frozen-meat detection spans every component of the meal, not just one recipe.
+      const hasFreezerMeat = mealIngredients(meal.components || []).some(
+        (i) => i.freshness === 'freezer-meat'
+      );
       if (!hasFreezerMeat) return;
       const cookDate = new Date(day.date);
       const reminderDate = new Date(cookDate);
@@ -114,10 +121,12 @@ export async function POST(req: NextRequest) {
       reminderRows.push({
         user_id: user.id,
         type: 'thaw',
-        title: `🧊 הוציאי להפשרה: ${recipe.name}`,
+        title: `🧊 הוציאי להפשרה: ${meal.name}`,
         body: `בישול מתוכנן ל-${cookDate.toLocaleDateString('he-IL')}`,
         scheduled_for: `${reminderDate.toISOString().slice(0, 10)}T18:00:00`,
-        related_recipe_id: recipe.id,
+        // The reminder relates to a whole meal now; related_recipe_id only accepts a
+        // recipe id, so it's left null rather than storing something misleading.
+        related_recipe_id: null,
       });
     });
   });
