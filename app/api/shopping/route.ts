@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   const { data: menuDays, error: menuError } = await supabase
     .from('menu_days')
     .select(
-      '*, breakfast:recipes!menu_days_breakfast_recipe_id_fkey(*, ingredients:recipe_ingredients(*)), lunch:recipes!menu_days_lunch_recipe_id_fkey(*, ingredients:recipe_ingredients(*)), dinner:recipes!menu_days_dinner_recipe_id_fkey(*, ingredients:recipe_ingredients(*))'
+      '*, breakfast:meals!menu_days_breakfast_meal_id_fkey(*, components:meal_components(*, recipe:recipes(*, ingredients:recipe_ingredients(*)), simple_ingredients:simple_component_ingredients(*))), lunch:meals!menu_days_lunch_meal_id_fkey(*, components:meal_components(*, recipe:recipes(*, ingredients:recipe_ingredients(*)), simple_ingredients:simple_component_ingredients(*))), dinner:meals!menu_days_dinner_meal_id_fkey(*, components:meal_components(*, recipe:recipes(*, ingredients:recipe_ingredients(*)), simple_ingredients:simple_component_ingredients(*))), snack:meals!menu_days_snack_meal_id_fkey(*, components:meal_components(*, recipe:recipes(*, ingredients:recipe_ingredients(*)), simple_ingredients:simple_component_ingredients(*)))'
     )
     .eq('user_id', user.id)
     .gte('date', firstDay)
@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
     breakfast: d.breakfast,
     lunch: d.lunch,
     dinner: d.dinner,
+    snack: d.snack,
   }));
 
   const approvals = (menuDays || []).map((d: any) => ({
@@ -68,6 +69,7 @@ export async function GET(req: NextRequest) {
     breakfast: d.breakfast_approved,
     lunch: d.lunch_approved,
     dinner: d.dinner_approved,
+    snack: d.snack_approved,
   }));
 
   const plan = buildShoppingPlan(days, approvals, settings as UserSettings, new Date(year, month, 1));
