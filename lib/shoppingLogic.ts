@@ -2,12 +2,13 @@
 // Groups ingredients from approved meals into the minimum number of shopping trips,
 // respecting each ingredient's real-world freshness window.
 
-import type { Recipe, UserSettings, ShoppingTrip, ShoppingTripItem } from './types';
+import type { Meal, UserSettings, ShoppingTrip, ShoppingTripItem } from './types';
+import { mealIngredients } from './mealLogic';
 import type { GeneratedDay } from './menuLogic';
 
 interface ApprovedMeal {
   date: Date;
-  recipe: Recipe;
+  meal: Meal;
 }
 
 function nextVegDeliveryOnOrAfter(date: Date, vegDays: number[]): Date {
@@ -68,7 +69,7 @@ const TRIP_LABELS: Record<ShoppingTrip['type'], string> = {
 
 export function buildShoppingPlan(
   approvedDays: GeneratedDay[],
-  approvals: { date: string; breakfast: boolean; lunch: boolean; dinner: boolean }[],
+  approvals: { date: string; breakfast: boolean; lunch: boolean; dinner: boolean; snack: boolean }[],
   settings: UserSettings,
   monthAnchor: Date
 ): { trips: ShoppingTrip[]; totalMeals: number } {
@@ -79,9 +80,12 @@ export function buildShoppingPlan(
     const approval = approvalByDate.get(day.date);
     if (!approval) return;
     const date = new Date(day.date);
-    if (approval.breakfast) approvedMeals.push({ date, recipe: day.breakfast });
-    if (approval.lunch) approvedMeals.push({ date, recipe: day.lunch });
-    if (approval.dinner) approvedMeals.push({ date, recipe: day.dinner });
+    if (approval.breakfast) approvedMeals.push({ date, meal: day.breakfast });
+    if (approval.lunch) approvedMeals.push({ date, meal: day.lunch });
+    if (approval.dinner) approvedMeals.push({ date, meal: day.dinner });
+    // Approved snacks contribute their ingredients too — otherwise nuts, hummus, cottage etc.
+    // would be eaten daily but never appear on any shopping list.
+    if (approval.snack && day.snack) approvedMeals.push({ date, meal: day.snack });
   });
 
   if (!approvedMeals.length) return { trips: [], totalMeals: 0 };
@@ -98,8 +102,10 @@ export function buildShoppingPlan(
     bucket[name].qty += qty;
   };
 
-  approvedMeals.forEach(({ date, recipe }) => {
-    (recipe.ingredients || []).forEach((ing) => {
+  approvedMeals.forEach(({ date, meal }) => {
+    // Ingredients now come from every component of the meal — both the recipe-backed
+    // ones and the simple items that never had a recipe.
+    mealIngredients(meal.components || []).forEach((ing) => {
       if (ing.freshness === 'fresh-fish') {
         const key = date.toISOString().slice(0, 10);
         if (!fishTrips[key]) fishTrips[key] = { date: new Date(date), items: {} };
