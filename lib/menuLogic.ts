@@ -1,175 +1,117 @@
-// Core menu-generation algorithm, ported from the original HTML prototype.
-// This is pure logic (no DOM, no Supabase calls) so it can be unit-tested and reused
-// both in the app's UI and in the background reminder-scheduling job.
+// Helpers for working with meals — the composed unit that appears on the menu.
+//
+// A meal's nutrition and shopping needs come from its components, which may be a
+// mix of recipe-backed items (with instructions) and simple items (no recipe needed).
+// These helpers hide that distinction from the rest of the app.
 
-import type { Recipe, MealSlot, Season, UserSettings } from './types';
+import type { Meal, MealComponent, Recipe, Freshness } from './types';
 
-// Israel has two culinary seasons: winter (Oct–Mar, soups/stews/warm) and
-// summer (Apr–Sep, cold/fresh/salads/shakes).
-export function seasonForDate(date: Date): 'summer' | 'winter' {
-  const month = date.getMonth(); // 0=Jan..11=Dec
-  const winterMonths = [9, 10, 11, 0, 1, 2];
-  return winterMonths.includes(month) ? 'winter' : 'summer';
+export type Effort = 'קל' | 'בינוני' | 'מורכב';
+
+export interface EffortInputs {
+  totalMinutes: number;
+  stepCount: number;
+  methodCount: number; // distinct cooking methods (pan / oven / boil / raw ...)
 }
 
-export function isSaladStyle(meal: Recipe | null | undefined): boolean {
-  if (!meal) return false;
-  return meal.category === 'סלט' || meal.cook_min === 0;
+// Effort deliberately combines three things, because time alone is misleading:
+// a 30-minute stew that's "chop, throw in pot, wait" is genuinely easier than a
+// 20-minute dish with four separate techniques running at once.
+export function scoreEffort({ totalMinutes, stepCount, methodCount }: EffortInputs): Effort {
+  const points =
+    (totalMinutes <= 15 ? 0 : totalMinutes <= 35 ? 2 : 4) +
+    (stepCount <= 3 ? 0 : stepCount <= 6 ? 1 : 2) +
+    (methodCount <= 1 ? 0 : methodCount === 2 ? 1 : 2);
+
+  if (points <= 2) return 'קל';
+  if (points <= 5) return 'בינוני';
+  return 'מורכב';
 }
 
-export function isWarmCooked(meal: Recipe | null | undefined): boolean {
-  if (!meal) return false;
-  return meal.cook_min > 0 || (meal.tags && meal.tags.includes('חם'));
+// Rough detection of distinct cooking methods from a recipe's written steps, so
+// effort can be scored without hand-tagging every recipe.
+export function countCookingMethods(steps: string[]): number {
+  const text = steps.join(' ');
+  const methods = [
+    /מטגנ|במחבת/,
+    /בתנור|אופ|צול/,
+    /מבשל|רותח|סיר/,
+    /מאדה|אידוי/,
+    /טוחn|בלנדר|מעבד/,
+    /ללא בישול|חותכ|מערבב/,
+  ];
+  return methods.filter((re) => re.test(text)).length || 1;
 }
 
-function shuffleArray<T>(arr: T[]): T[] {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
+// A meal's totals are the sum of its components. Recipe-backed components carry
+// their own numbers; simple ones carry theirs inline.
+export function mealTotals(components: MealComponent[]): { cal: number; protein_g: number } {
+  return components.reduce(
+    (acc, c) => {
+      if (c.recipe) {
+        acc.cal += c.recipe.cal || 0;
+        acc.protein_g += c.recipe.protein_g || 0;
+      } else {
+        acc.cal += c.simple_cal || 0;
+        acc.protein_g += c.simple_protein_g || 0;
+      }
+      return acc;
+    },
+    { cal: 0, protein_g: 0 }
+  );
 }
 
-// Filters the full recipe list down to what's eligible for a given slot/season/day/settings,
-// respecting: approval status, day-of-week restrictions (Friday-only, office-day-only),
-// dislikes, and the month-level diet/health filters.
-export function poolForSlot(
-  allRecipes: Recipe[],
-  slot: MealSlot,
-  season: Season,
-  dayOfWeek: number,
-  settings: Pick<UserSettings, 'diet_mode' | 'health_mode'>
-): Recipe[] {
-  const candidates = allRecipes.filter((r) => {
-    if (r.status !== 'approved' || r.meal_slot !== slot || r.category === 'תינוקת') return false;
-    if (r.disliked) return false;
-    if (r.only_day !== null && r.only_day !== dayOfWeek) return false;
-    if (r.only_days && !r.only_days.includes(dayOfWeek)) return false;
-    return true;
+export interface AggregatedIngredient {
+  name: string;
+  qty: number;
+  unit: string;
+  freshness: Freshness;
+}
+
+// Everything you need to buy for a meal, pulled from both recipe-backed and simple
+// components and merged so the same item doesn't appear twice on a shopping list.
+export function mealIngredients(components: MealComponent[]): AggregatedIngredient[] {
+  const merged = new Map<string, AggregatedIngredient>();
+
+  const add = (name: string, qty: number, unit: string, freshness: Freshness) => {
+    const key = `${name}|${unit}`;
+    const existing = merged.get(key);
+    if (existing) existing.qty += qty;
+    else merged.set(key, { name, qty, unit, freshness });
+  };
+
+  components.forEach((c) => {
+    if (c.recipe?.ingredients) {
+      c.recipe.ingredients.forEach((ing) => add(ing.name, ing.qty, ing.unit, ing.freshness));
+    }
+    c.simple_ingredients?.forEach((ing) => add(ing.name, ing.qty, ing.unit, ing.freshness));
   });
 
-  let filtered = candidates;
-  if (settings.diet_mode === 'diet') {
-    const dietOnly = filtered.filter((r) => r.diet_tag === 'דיאטטי');
-    if (dietOnly.length) filtered = dietOnly;
-  }
-  if (settings.health_mode === 'healthy') {
-    const healthyOnly = filtered.filter((r) => r.health_tag === 'בריא');
-    if (healthyOnly.length) filtered = healthyOnly;
-  }
-
-  const seasonal = filtered.filter((r) => !r.season || r.season === 'all' || r.season === season);
-  return seasonal.length ? seasonal : filtered;
+  return Array.from(merged.values());
 }
 
-// Stateful shuffled-bag generator: call `next()` repeatedly to get non-repeating picks
-// until the bag is exhausted, then it reshuffles automatically.
-class MealBag {
-  private queue: Recipe[] = [];
-  private lastId: string | null = null;
-
-  next(candidates: Recipe[]): Recipe {
-    if (this.queue.length === 0) {
-      this.queue = shuffleArray(candidates);
-      // Avoid repeating the same dish across a bag boundary
-      if (candidates.length > 1 && this.queue[this.queue.length - 1].id === this.lastId) {
-        const swapIdx = Math.floor(Math.random() * (this.queue.length - 1));
-        const lastIdx = this.queue.length - 1;
-        [this.queue[swapIdx], this.queue[lastIdx]] = [this.queue[lastIdx], this.queue[swapIdx]];
-      }
-    }
-    const item = this.queue.pop()!;
-    this.lastId = item.id;
-    return item;
-  }
+// Only components that actually have instructions are worth surfacing as cooking
+// steps — "steamed peas" doesn't need a method, "paprika chicken strips" does.
+export function componentsWithInstructions(components: MealComponent[]): MealComponent[] {
+  return components.filter((c) => c.recipe && (c.recipe.steps?.length || 0) > 0);
 }
 
-export interface GeneratedDay {
-  date: string; // ISO date
-  season: 'summer' | 'winter';
-  breakfast: Recipe;
-  lunch: Recipe;
-  dinner: Recipe;
+// A meal counts as needing real cooking if any component does.
+export function mealNeedsCooking(meal: Meal): boolean {
+  return (meal.total_cook_min || 0) > 0;
 }
 
-// Generates a full month of meals, day by day, respecting:
-//  - office-day forced breakfast/lunch (fixed recipes tagged with only_days)
-//  - Friday-only / other day-restricted recipes
-//  - salad/warm-dish balancing between lunch and dinner (summer: guaranteed daily salad)
-//  - no back-to-back repeats within a meal slot
-export function generateMonth(
-  allRecipes: Recipe[],
-  year: number,
-  month0: number, // 0-indexed month
-  settings: Pick<UserSettings, 'office_days' | 'diet_mode' | 'health_mode'>
-): GeneratedDay[] {
-  const numDays = new Date(year, month0 + 1, 0).getDate();
-  const bags: Record<string, MealBag> = {};
-  const getBag = (key: string) => {
-    if (!bags[key]) bags[key] = new MealBag();
-    return bags[key];
-  };
+// Used by the fresh/cooked daily balance rule: a meal is "fresh" when nothing in
+// it is actually cooked.
+export function isFreshMeal(meal: Meal): boolean {
+  return (meal.total_cook_min || 0) === 0;
+}
 
-  const pickForSlot = (
-    slot: MealSlot,
-    season: Season,
-    dow: number,
-    preferSalad: boolean | null
-  ): Recipe => {
-    const isOfficeDay = settings.office_days.includes(dow);
-    if (isOfficeDay && (slot === 'breakfast' || slot === 'lunch')) {
-      const forced = allRecipes.find(
-        (r) => r.status === 'approved' && r.meal_slot === slot && r.only_days?.includes(dow)
-      );
-      if (forced) return forced;
-    }
-
-    const candidates = poolForSlot(allRecipes, slot, season, dow, settings);
-    const dayRestricted = candidates.find(
-      (r) => r.only_day === dow || (r.only_days && r.only_days.includes(dow))
-    );
-    if (dayRestricted) return dayRestricted;
-
-    const rotationCandidates = candidates.filter((r) => r.only_day === null && !r.only_days);
-    const pool = rotationCandidates.length ? rotationCandidates : candidates;
-
-    if (preferSalad === null) {
-      return getBag(`${slot}-${season}`).next(pool);
-    }
-    const biased = pool.filter((r) => (preferSalad ? isSaladStyle(r) : isWarmCooked(r)));
-    const finalPool = biased.length ? biased : pool;
-    return getBag(`${slot}-${season}-${preferSalad ? 'salad' : 'warm'}`).next(finalPool);
-  };
-
-  const days: GeneratedDay[] = [];
-  for (let i = 0; i < numDays; i++) {
-    const d = new Date(year, month0, i + 1);
-    const season = seasonForDate(d);
-    const dow = d.getDay();
-
-    const breakfast = pickForSlot('breakfast', season, dow, null);
-
-    const saladLeadsLunch = i % 2 === 0;
-    const lunch =
-      season === 'summer'
-        ? pickForSlot('lunch', season, dow, saladLeadsLunch)
-        : pickForSlot('lunch', season, dow, saladLeadsLunch ? false : null);
-
-    const lunchWasSalad = isSaladStyle(lunch);
-    const dinner =
-      season === 'summer'
-        ? pickForSlot('dinner', season, dow, !lunchWasSalad)
-        : pickForSlot('dinner', season, dow, lunchWasSalad ? null : false);
-
-    days.push({
-      date: d.toISOString().slice(0, 10),
-      season,
-      breakfast,
-      lunch,
-      dinner,
-    });
-  }
-
-  return days;
+// Convenience for the UI: a readable one-line summary of what's in the meal.
+export function componentSummary(components: MealComponent[]): string {
+  return components
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((c) => c.recipe?.name || c.simple_name || '')
+    .filter(Boolean)
+    .join(' + ');
 }
