@@ -84,7 +84,7 @@ export default function MenuPage() {
     handleGenerate();
   }
 
-  async function handleApprove(date: string, slot: 'breakfast' | 'lunch' | 'dinner') {
+  async function handleApprove(date: string, slot: 'breakfast' | 'lunch' | 'dinner' | 'snack') {
     await fetch('/api/menu/day', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -93,13 +93,23 @@ export default function MenuPage() {
     loadMenu();
   }
 
-  async function handleSwap(date: string, slot: 'breakfast' | 'lunch' | 'dinner') {
+  async function handleSwap(date: string, slot: 'breakfast' | 'lunch' | 'dinner' | 'snack') {
     await fetch('/api/menu/day', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ date, slot, action: 'swap' }),
     });
     loadMenu();
+  }
+
+  async function handleDislike(date: string, slot: 'breakfast' | 'lunch' | 'dinner' | 'snack') {
+    await fetch('/api/menu/day', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, slot, action: 'dislike' }),
+    });
+    loadMenu();
+    loadRecipes(); // the disliked recipe should now show as disliked in the recipe pool too
   }
 
   async function handleFilterChange(key: 'diet_mode' | 'health_mode', value: string) {
@@ -262,6 +272,9 @@ export default function MenuPage() {
                 onToggle={() => setExpandedDay(expandedDay === day.date ? null : day.date)}
                 onApprove={(slot) => handleApprove(day.date, slot)}
                 onSwap={(slot) => handleSwap(day.date, slot)}
+                onDislike={(slot) => handleDislike(day.date, slot)}
+                dailyProteinTarget={settings?.daily_protein_target || 95}
+                dailyCalTarget={settings?.daily_cal_target || 1500}
               />
             ))}
 
