@@ -1,19 +1,26 @@
 'use client';
 
-import type { Recipe } from '@/lib/types';
+import type { Meal } from '@/lib/types';
+import { componentSummary } from '@/lib/mealLogic';
 
 interface DayRow {
   date: string;
   season: 'summer' | 'winter';
-  breakfast: Recipe;
+  breakfast: Meal;
   breakfast_approved: boolean;
-  lunch: Recipe;
+  lunch: Meal;
   lunch_approved: boolean;
-  dinner: Recipe;
+  dinner: Meal;
   dinner_approved: boolean;
+  snack: Meal | null;
+  snack_approved: boolean;
 }
 
-const SLOT_LABEL: Record<string, string> = { breakfast: 'בוקר', lunch: 'צהריים', dinner: 'ערב' };
+const SLOT_LABEL: Record<string, string> = { breakfast: 'בוקר', lunch: 'צהריים', dinner: 'ערב', snack: 'נשנוש' };
+
+// All four slots the day card renders. 'snack' is the planned afternoon snack (14:00-16:00).
+const SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
+type SlotName = (typeof SLOTS)[number];
 const HE_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const HE_MONTHS = [
   'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
@@ -26,23 +33,39 @@ export default function MenuDayCard({
   onToggle,
   onApprove,
   onSwap,
+  onDislike,
+  dailyProteinTarget,
+  dailyCalTarget,
 }: {
   day: DayRow;
   expanded: boolean;
   onToggle: () => void;
-  onApprove: (slot: 'breakfast' | 'lunch' | 'dinner') => void;
-  onSwap: (slot: 'breakfast' | 'lunch' | 'dinner') => void;
+  onApprove: (slot: SlotName) => void;
+  onSwap: (slot: SlotName) => void;
+  onDislike: (slot: SlotName) => void;
+  dailyProteinTarget: number;
+  dailyCalTarget: number;
 }) {
   const d = new Date(day.date);
-  const approvedCount = (['breakfast', 'lunch', 'dinner'] as const).filter((s) => {
+
+  const isApprovedFor = (s: SlotName): boolean => {
     if (s === 'breakfast') return day.breakfast_approved;
     if (s === 'lunch') return day.lunch_approved;
-    return day.dinner_approved;
-  }).length;
-  const proteinTotal = (['breakfast', 'lunch', 'dinner'] as const).reduce(
-    (sum, s) => sum + (day[s]?.protein_g || 0),
-    0
-  );
+    if (s === 'dinner') return day.dinner_approved;
+    return day.snack_approved;
+  };
+
+  // Only count slots that actually have a recipe — on a rare day with no snack available,
+  // the day shouldn't look permanently incomplete.
+  const presentSlots = SLOTS.filter((s) => !!day[s]);
+  const approvedCount = presentSlots.filter(isApprovedFor).length;
+
+  // Daily totals come from the three MAIN meals only. The afternoon snack is an optional
+  // extra — it's deliberately excluded so the numbers shown reflect what the day is actually
+  // planned to deliver, whether or not the snack is eaten.
+  const MAIN_SLOTS = ['breakfast', 'lunch', 'dinner'] as const;
+  const proteinTotal = MAIN_SLOTS.reduce((sum, s) => sum + (day[s]?.protein_g || 0), 0);
+  const calTotal = MAIN_SLOTS.reduce((sum, s) => sum + (day[s]?.cal || 0), 0);
 
   return (
     <div className="card" style={{ marginBottom: 8, overflow: 'hidden' }}>
@@ -65,12 +88,17 @@ export default function MenuDayCard({
             fontWeight: 700,
             padding: '4px 10px',
             borderRadius: 50,
-            background: 'var(--bg2)',
-            color: 'var(--text-3)',
+            background: proteinTotal >= dailyProteinTarget ? '#e3f6ea' : '#fde9e9',
+            color: proteinTotal >= dailyProteinTarget ? '#16341f' : '#7a1f1f',
             whiteSpace: 'nowrap',
           }}
+          title={
+            proteinTotal >= dailyProteinTarget
+              ? `עומדת ביעד (${dailyProteinTarget}g)`
+              : `מתחת ליעד (${dailyProteinTarget}g) — חסרים ${dailyProteinTarget - proteinTotal}g`
+          }
         >
-          🥩 {proteinTotal}g
+          🥩 {proteinTotal}g{proteinTotal < dailyProteinTarget ? ' ⚠️' : ''}
         </span>
         <span
           style={{
@@ -78,22 +106,40 @@ export default function MenuDayCard({
             fontWeight: 700,
             padding: '4px 10px',
             borderRadius: 50,
-            background: approvedCount === 3 ? '#6ee7a0' : approvedCount > 0 ? 'var(--c-recv-bg)' : 'var(--bg2)',
-            color: approvedCount === 3 ? '#16341f' : approvedCount > 0 ? '#8a6000' : 'var(--text-3)',
+            background: 'var(--bg2)',
+            color: 'var(--text-3)',
+            whiteSpace: 'nowrap',
+          }}
+          title={`יעד יומי: ${dailyCalTarget} קק״ל (לא כולל נשנוש)`}
+        >
+          🔥 {calTotal}
+        </span>
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            padding: '4px 10px',
+            borderRadius: 50,
+            background:
+              approvedCount === presentSlots.length ? '#6ee7a0' : approvedCount > 0 ? 'var(--c-recv-bg)' : 'var(--bg2)',
+            color: approvedCount === presentSlots.length ? '#16341f' : approvedCount > 0 ? '#8a6000' : 'var(--text-3)',
             whiteSpace: 'nowrap',
           }}
         >
-          {approvedCount === 3 ? '✓ 3/3 מאושר' : approvedCount > 0 ? `${approvedCount}/3 מאושר` : 'טרם אושר'}
+          {approvedCount === presentSlots.length
+            ? `✓ ${approvedCount}/${presentSlots.length} מאושר`
+            : approvedCount > 0
+              ? `${approvedCount}/${presentSlots.length} מאושר`
+              : 'טרם אושר'}
         </span>
       </div>
 
       {expanded && (
         <div style={{ padding: '4px 12px 12px', borderTop: '1px solid var(--border-soft)' }}>
-          {(['breakfast', 'lunch', 'dinner'] as const).map((slot) => {
-            const recipe = day[slot];
-            const approved =
-              slot === 'breakfast' ? day.breakfast_approved : slot === 'lunch' ? day.lunch_approved : day.dinner_approved;
-            if (!recipe) return null;
+          {SLOTS.map((slot) => {
+            const meal = day[slot];
+            if (!meal) return null;
+            const approved = isApprovedFor(slot);
             return (
               <div
                 key={slot}
@@ -121,12 +167,20 @@ export default function MenuDayCard({
                     flexShrink: 0,
                   }}
                 >
-                  {recipe.icon}
+                  {meal.icon}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>{recipe.name}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{meal.name}</div>
+                  {/* For meals built from several components, show what's actually in it —
+                      e.g. "רצועות עוף בפפריקה + אפונה מאודה + סלט קטן". Single-component
+                      meals would just repeat the name, so they're skipped. */}
+                  {(meal.components?.length || 0) > 1 && (
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                      {componentSummary(meal.components || [])}
+                    </div>
+                  )}
                   <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
-                    {recipe.tags?.map((t) => (
+                    {meal.tags?.map((t) => (
                       <span
                         key={t}
                         style={{
@@ -151,7 +205,22 @@ export default function MenuDayCard({
                         borderRadius: 50,
                       }}
                     >
-                      ⏱ {recipe.prep_min + recipe.cook_min} דק׳
+                      ⏱ {meal.total_prep_min + meal.total_cook_min} דק׳
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        padding: '2px 7px',
+                        borderRadius: 50,
+                        background:
+                          meal.effort === 'קל' ? '#e3f6ea' : meal.effort === 'בינוני' ? 'var(--c-recv-bg)' : '#fde9e9',
+                        color:
+                          meal.effort === 'קל' ? '#16341f' : meal.effort === 'בינוני' ? '#8a6000' : '#7a1f1f',
+                      }}
+                      title="רמת מאמץ: זמן + מספר שלבים + מספר שיטות בישול"
+                    >
+                      {meal.effort === 'קל' ? '🟢' : meal.effort === 'בינוני' ? '🟡' : '🔴'} {meal.effort}
                     </span>
                   </div>
                 </div>
@@ -201,6 +270,26 @@ export default function MenuDayCard({
                         }}
                       >
                         🔄
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`להסיר את "${meal.name}" מהמאגר לצמיתות? הוא לא יוצע יותר בתפריטים עתידיים.`)) {
+                            onDislike(slot);
+                          }
+                        }}
+                        title="לא עובד לי — הסירי מהמאגר"
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: '50%',
+                          border: 'none',
+                          background: '#fde9e9',
+                          color: '#7a1f1f',
+                          cursor: 'pointer',
+                          fontSize: 12,
+                        }}
+                      >
+                        👎
                       </button>
                     </>
                   )}
