@@ -142,6 +142,7 @@ export interface DayTotals {
   cookedCount: number; // warm, actually-cooked meals
   complexCount: number; // meals marked 'מורכב' — real kitchen time
   dairyCount: number; // meals containing cow's-milk products
+  categories: FoodCategory[]; // one entry per main meal, in breakfast/lunch/dinner order
 }
 
 // Totals for a day, from the three main meals ONLY — snacks are never included.
@@ -154,6 +155,7 @@ export function dayTotals(breakfast: Meal, lunch: Meal, dinner: Meal): DayTotals
     cookedCount: meals.filter((m) => isWarmCooked(m)).length,
     complexCount: meals.filter((m) => m?.effort === 'מורכב').length,
     dairyCount: meals.filter((m) => m?.has_dairy).length,
+    categories: meals.map((m) => mealCategory(m)),
   };
 }
 
@@ -182,6 +184,43 @@ export function effortBudgetForDay(
 // Scores a candidate day: higher is better. Every constraint is expressed as a penalty
 // so they can be traded off against each other rather than applied as hard gates —
 // that way a day that misses one target slightly still beats a day that misses badly.
+// Food category detection, matching the same pattern used for illustrations — kept
+// separate (not imported from the UI layer) so this file has no dependency on
+// components/. Used to decide which categories shouldn't repeat in one day.
+//
+// Rules (per the user's explicit guidance, not a blanket "no repeats"):
+//   fish, salad, meat (beef) — hard rule: never twice in a day
+//   chicken               — soft rule: discouraged, but allowed if it's the least-bad
+//                            option (two very different chicken dishes is tolerable)
+//   eggs, legumes, soup    — no restriction; eggs twice a day is explicitly fine
+export type FoodCategory = 'salad' | 'fish' | 'meat' | 'chicken' | 'eggs' | 'legumes' | 'soup' | null;
+
+const CATEGORY_PATTERNS: [FoodCategory, RegExp][] = [
+  ['salad', /סלט|salad/],
+  ['soup', /מרק|soup/],
+  ['fish', /דג|סלמון|לברק|דניס|פורל|לוקוס|טונה/],
+  ['chicken', /עוף|הודו|שניצל/],
+  ['meat', /בשר|בקר|קציצ|המבורגר|שומר/],
+  ['eggs', /ביצ|חביתה|שקשוקה|פריטטה|אומלט/],
+  ['legumes', /עדש|חומוס|קטני|קינואה|כוסמת|אמרנט|דוחן/],
+];
+
+export function mealCategory(meal: Meal | null | undefined): FoodCategory {
+  if (!meal) return null;
+  const hay = `${meal.name || ''} ${(meal.tags || []).join(' ')}`;
+  for (const [category, pattern] of CATEGORY_PATTERNS) {
+    if (pattern.test(hay)) return category;
+  }
+  return null;
+}
+
+export const HARD_NO_REPEAT: FoodCategory[] = ['fish', 'salad', 'meat'];
+export const SOFT_NO_REPEAT: FoodCategory[] = ['chicken'];
+
+export function isFishMeal(meal: Meal | null | undefined): boolean {
+  return mealCategory(meal) === 'fish';
+}
+
 export function scoreDay(totals: DayTotals, targets: DayTargets): number {
   let score = 1000;
 
@@ -214,6 +253,20 @@ export function scoreDay(totals: DayTotals, targets: DayTargets): number {
   const wantFreshMin = 1;
   if (totals.freshCount < wantFreshMin) score -= (wantFreshMin - totals.freshCount) * 40;
   if (totals.cookedCount < 1) score -= 60; // at least one properly cooked meal a day
+
+  // ── Category repetition: fish, salad and meat (beef) reading twice in one day is a
+  // planning mistake, not a reasonable repeat — unlike eggs, which are explicitly fine
+  // twice. Chicken is a softer case: repeating it is discouraged but tolerable if the
+  // dishes are genuinely different preparations, so it gets a lighter penalty rather
+  // than the same hard one.
+  for (const category of HARD_NO_REPEAT) {
+    const count = totals.categories.filter((c) => c === category).length;
+    if (count > 1) score -= (count - 1) * 90;
+  }
+  for (const category of SOFT_NO_REPEAT) {
+    const count = totals.categories.filter((c) => c === category).length;
+    if (count > 1) score -= (count - 1) * 35;
+  }
 
   // ── Dairy: the dietitian advises minimising cow's-milk products. Rather than banning
   // them, we allow at most one dairy meal a day and penalise more — combined with the
@@ -433,6 +486,45 @@ export function generateMonth(
 
         if (improvedDay === current) break; // no swap helped; stop trying
         bestDay = improvedDay;
+      }
+    }
+
+    // Hard-rule category repeats (fish, salad, meat) are a planning mistake, not a
+    // reasonable repeat — unlike eggs, which are fine twice. If the best day still has
+    // one of these categories twice after the protein repair pass above, replace one
+    // occurrence with the best legal alternative for that slot that isn't the same
+    // category. This is unconditional whenever a legal alternative exists: these are
+    // hard rules, worth some cost elsewhere (e.g. a slightly lower-protein day) to
+    // satisfy. Runs once per hard-ban category in case more than one is duplicated.
+    if (bestDay) {
+      for (const category of HARD_NO_REPEAT) {
+        const day = bestDay as { breakfast: Meal; lunch: Meal; dinner: Meal };
+        const slots = (['breakfast', 'lunch', 'dinner'] as const).filter(
+          (s) => mealCategory(day[s]) === category
+        );
+        if (slots.length <= 1) continue;
+
+        // Prefer fixing dinner first — for fish specifically this is where the 'any'
+        // slot introduced the duplicate possibility in the first place; for salad/meat
+        // it's a reasonable default tie-break since dinner is the most swap-flexible
+        // meal generally.
+        const slotToFix = slots.includes('dinner') ? 'dinner' : slots[0];
+        const candidates = poolForSlot(allRecipes, slotToFix, season, dow, settings).filter(
+          (r) => r.only_day === null && !r.only_days && mealCategory(r) !== category
+        );
+        if (!candidates.length) continue;
+
+        let best = candidates[0];
+        let bestScore = -Infinity;
+        candidates.forEach((c) => {
+          const trial = { ...day, [slotToFix]: c };
+          const s = scoreDay(dayTotals(trial.breakfast, trial.lunch, trial.dinner), targets);
+          if (s > bestScore) {
+            bestScore = s;
+            best = c;
+          }
+        });
+        bestDay = { ...day, [slotToFix]: best };
       }
     }
 
