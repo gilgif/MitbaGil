@@ -1,54 +1,92 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import BottomNav from '@/components/BottomNav';
-import { createClient } from '@/lib/supabase';
-import type { Recipe } from '@/lib/types';
+import ActivityDetails from '@/components/ActivityDetails';
+import type { ScheduleEvent } from '@/lib/scheduleLogic';
+import { TYPE_LABEL, illustrationForEvent } from '@/lib/scheduleLogic';
+import { Illustration } from '@/components/Illustrations';
 
-interface TodayMeal {
-  slot: 'breakfast' | 'lunch' | 'dinner';
-  recipe: Recipe;
-  approved: boolean;
-}
+const HE_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+const HE_MONTHS = [
+  'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
+  'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר',
+];
 
-const SLOT_LABEL: Record<string, string> = { breakfast: 'בוקר', lunch: 'צהריים', dinner: 'ערב' };
-const SLOT_TIME_HINT: Record<string, string> = { breakfast: '09:00', lunch: '13:00', dinner: '18:00' };
+const TYPE_BG: Record<string, string> = {
+  eat: 'var(--c-eat-bg)',
+  cook: 'var(--c-cook-bg)',
+  prep: 'var(--c-prep-bg)',
+  shop: 'var(--c-shop-bg)',
+  sport: 'var(--c-sport-bg)',
+  recv: 'var(--c-recv-bg)',
+  baby: 'var(--c-baby-bg)',
+};
 
 export default function NowPage() {
-  const [meals, setMeals] = useState<TodayMeal[] | null>(null);
+  // Holds the WHOLE month, not just today — swiping past midnight should carry on into
+  // tomorrow's first activity rather than hitting a wall at the end of the day.
+  const [events, setEvents] = useState<ScheduleEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
 
   useEffect(() => {
-    const supabase = createClient();
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = today.getMonth();
-    const dateStr = today.toISOString().slice(0, 10);
-
     (async () => {
-      const res = await fetch(`/api/menu?year=${year}&month=${month}`);
-      if (!res.ok) {
-        setLoading(false);
-        return;
+      const res = await fetch(`/api/schedule?year=${today.getFullYear()}&month=${today.getMonth()}`);
+      if (res.ok) {
+        const all: ScheduleEvent[] = await res.json();
+        setEvents(all);
+
+        // Open on whatever is current right now: the last activity today whose time has
+        // already passed. Falls back to the first activity of today, then to the very first.
+        const nowStr = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
+        let idx = all.findIndex((e) => e.date === todayStr);
+        if (idx < 0) idx = 0;
+        all.forEach((e, i) => {
+          if (e.date === todayStr && e.time <= nowStr) idx = i;
+        });
+        setActiveIdx(idx);
       }
-      const days = await res.json();
-      const todayRow = days.find((d: any) => d.date === dateStr);
-      if (!todayRow) {
-        setMeals([]);
-        setLoading(false);
-        return;
-      }
-      const result: TodayMeal[] = [];
-      (['breakfast', 'lunch', 'dinner'] as const).forEach((slot) => {
-        if (todayRow[slot]) {
-          result.push({ slot, recipe: todayRow[slot], approved: todayRow[`${slot}_approved`] });
-        }
-      });
-      setMeals(result);
       setLoading(false);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const go = useCallback(
+    (delta: number) => {
+      setActiveIdx((cur) => {
+        const next = cur + delta;
+        if (next < 0 || next >= events.length) return cur;
+        setExpanded(false); // moving to a new activity always starts collapsed
+        return next;
+      });
+    },
+    [events.length]
+  );
+
+  function onTouchStart(e: React.TouchEvent) {
+    touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }
+  function onTouchEnd(e: React.TouchEvent) {
+    if (!touchStart.current) return;
+    const dx = e.changedTouches[0].clientX - touchStart.current.x;
+    const dy = e.changedTouches[0].clientY - touchStart.current.y;
+    touchStart.current = null;
+    // Ignore mostly-vertical gestures so the expanded card can still be scrolled
+    if (Math.abs(dx) < 40 || Math.abs(dy) > Math.abs(dx) * 0.7) return;
+    // RTL: swiping right goes back to the previous activity
+    go(dx > 0 ? -1 : 1);
+  }
+
+  const current = events[activeIdx];
+  const currentDate = current ? new Date(current.date) : today;
+  const isToday = current?.date === todayStr;
 
   return (
     <div className="app-shell">
@@ -61,65 +99,154 @@ export default function NowPage() {
         </Link>
       </div>
 
-      <div className="page-content" style={{ padding: '16px' }}>
-        <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 4 }}>
-          {new Date().toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
+      <div className="page-content" style={{ padding: '16px', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-3)', marginBottom: 2 }}>
+          {HE_DAYS[currentDate.getDay()]}
+          {isToday ? ' · היום' : ''}, {currentDate.getDate()} ב{HE_MONTHS[currentDate.getMonth()]}
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 20 }}>הארוחות שלך היום</div>
 
         {loading && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>טוענת...</div>}
 
-        {!loading && meals && meals.length === 0 && (
+        {!loading && events.length === 0 && (
           <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>
-            אין עדיין תפריט לחודש הזה — עברי לטאב תפריט כדי ליצור אחד
+            אין פעילויות — עברי לטאב תפריט כדי ליצור ולאשר תפריט
           </div>
         )}
 
-        {!loading &&
-          meals &&
-          meals.map((m) => (
+        {!loading && current && (
+          <>
             <div
-              key={m.slot}
-              className="card"
-              style={{
-                padding: 20,
-                marginBottom: 12,
-                opacity: m.approved ? 1 : 0.85,
-              }}
+              onTouchStart={onTouchStart}
+              onTouchEnd={onTouchEnd}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-3)' }}>
-                  {SLOT_LABEL[m.slot]} · {SLOT_TIME_HINT[m.slot]}
+              {/* Tapping anywhere on the card toggles the details open/closed — the card
+                  grows downward rather than opening a separate overlay. */}
+              <div
+                className="card"
+                onClick={() => setExpanded((v) => !v)}
+                style={{ padding: 24, cursor: 'pointer', marginTop: 12, position: 'relative' }}
+              >
+                {/* A big illustration stage, like the prototype — the character is the
+                    focal point of the card, not a small side icon. */}
+                <div
+                  style={{
+                    width: 128,
+                    height: 128,
+                    margin: '0 auto 14px',
+                    borderRadius: '50%',
+                    background: TYPE_BG[current.type] || 'var(--bg2)',
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div style={{ width: '84%', height: '84%' }}>
+                    <Illustration kind={illustrationForEvent(current)} />
+                  </div>
                 </div>
-                {m.approved && (
-                  <span
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-3)' }}>
+                      {current.time} · {TYPE_LABEL[current.type]}
+                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 900, lineHeight: 1.3 }}>{current.title}</div>
+                  </div>
+                  <div
                     style={{
-                      fontSize: 11,
-                      fontWeight: 800,
-                      background: '#e3f6ea',
-                      color: '#16341f',
-                      padding: '4px 10px',
-                      borderRadius: 50,
+                      position: 'absolute',
+                      left: 24,
+                      fontSize: 18,
+                      color: 'var(--text-3)',
+                      transform: expanded ? 'rotate(180deg)' : 'none',
+                      transition: 'transform .2s',
                     }}
                   >
-                    ✓ מאושר
-                  </span>
+                    ⌄
+                  </div>
+                </div>
+
+                {!expanded && current.detail && (
+                  <div style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.6, marginTop: 14 }}>
+                    {current.detail}
+                  </div>
                 )}
-              </div>
-              <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 6 }}>
-                {m.recipe.icon} {m.recipe.name}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
-                {m.recipe.cal} קק״ל · {m.recipe.protein_g}g חלבון · {m.recipe.prep_min + m.recipe.cook_min} דק׳
+
+                {expanded && (
+                  <div style={{ marginTop: 14, borderTop: '1px solid var(--border-soft)', paddingTop: 6 }}>
+                    <ActivityDetails event={current} />
+                  </div>
+                )}
+
+                <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 16 }}>
+                  {expanded ? 'הקישי לסגירה' : 'הקישי לפרטים מלאים'}
+                </div>
               </div>
             </div>
-          ))}
+
+            {/* Arrows + position. Dots are per-day so the row doesn't become unreadable
+                across a whole month of activities. */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 14,
+                padding: '18px 0 6px',
+              }}
+            >
+              <button onClick={(e) => { e.stopPropagation(); go(1); }} disabled={activeIdx >= events.length - 1} style={arrowStyle}>
+                ‹
+              </button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {events
+                  .map((e, i) => ({ e, i }))
+                  .filter(({ e }) => e.date === current.date)
+                  .map(({ i }) => (
+                    <div
+                      key={i}
+                      onClick={(ev) => { ev.stopPropagation(); setActiveIdx(i); setExpanded(false); }}
+                      style={{
+                        width: i === activeIdx ? 20 : 7,
+                        height: 7,
+                        borderRadius: 50,
+                        background: i === activeIdx ? 'var(--ink)' : 'var(--border)',
+                        transition: 'all .2s',
+                        cursor: 'pointer',
+                      }}
+                    />
+                  ))}
+              </div>
+              <button onClick={(e) => { e.stopPropagation(); go(-1); }} disabled={activeIdx <= 0} style={arrowStyle}>
+                ›
+              </button>
+            </div>
+
+            <div style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--text-3)' }}>
+              החליקי לפעילות הבאה — גם לימים אחרים
+            </div>
+          </>
+        )}
       </div>
 
       <BottomNav />
     </div>
   );
 }
+
+const arrowStyle: React.CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: '50%',
+  border: 'none',
+  background: 'var(--bg2)',
+  color: 'var(--text-2)',
+  fontSize: 20,
+  cursor: 'pointer',
+  lineHeight: 1,
+};
 
 const settingsBtnStyle: React.CSSProperties = {
   position: 'absolute',
