@@ -166,6 +166,14 @@ export default function SchedulePage() {
                       {e.title}
                     </div>
                   </div>
+                  {/* Protein/calorie summary — only meaningful for meal events, so it's
+                      skipped for shopping/sport/etc which don't carry a meal. */}
+                  {e.meal && (
+                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                      <span style={macroChip}>🥩 {e.meal.protein_g}g</span>
+                      <span style={macroChip}>🔥 {e.meal.cal}</span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -182,6 +190,16 @@ export default function SchedulePage() {
     </div>
   );
 }
+
+const macroChip: React.CSSProperties = {
+  fontSize: 10.5,
+  fontWeight: 700,
+  color: 'var(--text-3)',
+  background: 'var(--bg2)',
+  padding: '3px 7px',
+  borderRadius: 50,
+  whiteSpace: 'nowrap',
+};
 
 const arrowStyle: React.CSSProperties = {
   width: 34,
