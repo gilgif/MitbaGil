@@ -168,8 +168,19 @@ export default function NowPage() {
                   </div>
                 </div>
 
-                {!expanded && current.detail && (
-                  <div style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.6, marginTop: 14 }}>
+                {/* Meal events get proper icon chips for protein/calories instead of the
+                    plain "480 קק״ל · 38g חלבון" text — same style as the schedule cards. */}
+                {!expanded && current.meal && (
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 14 }}>
+                    <span style={macroChip}>🥩 {current.meal.protein_g}g חלבון</span>
+                    <span style={macroChip}>🔥 {current.meal.cal} קק״ל</span>
+                  </div>
+                )}
+
+                {!expanded && !current.meal && current.detail && (
+                  <div
+                    style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.6, marginTop: 14, textAlign: 'center' }}
+                  >
                     {current.detail}
                   </div>
                 )}
@@ -235,6 +246,16 @@ export default function NowPage() {
     </div>
   );
 }
+
+const macroChip: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 700,
+  color: 'var(--text-2)',
+  background: 'var(--bg2)',
+  padding: '5px 12px',
+  borderRadius: 50,
+  whiteSpace: 'nowrap',
+};
 
 const arrowStyle: React.CSSProperties = {
   width: 34,
