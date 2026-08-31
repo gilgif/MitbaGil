@@ -284,6 +284,26 @@ export function buildSchedule({ days, approvals, settings, monthAnchor }: BuildS
   return events;
 }
 
+import { illustrationForMeal, type IllustrationKind } from '@/components/Illustrations';
+
+// Which illustration represents this event. Meal events (breakfast/lunch/dinner/snack)
+// use the meal's own food category so a salad looks like a salad, not a generic apple;
+// every other event type maps directly since the activity types and illustration kinds
+// share the same names.
+export function illustrationForEvent(event: ScheduleEvent): IllustrationKind {
+  if (event.type === 'eat' && event.meal) {
+    return illustrationForMeal({
+      tags: event.meal.tags,
+      mealSlot: event.meal.meal_slot,
+      name: event.meal.name,
+    });
+  }
+  const direct: Record<string, IllustrationKind> = {
+    eat: 'eat', cook: 'cook', prep: 'prep', shop: 'shop', sport: 'sport', recv: 'recv', baby: 'baby',
+  };
+  return direct[event.type] || 'eat';
+}
+
 // Convenience: all events for one specific date, already in chronological order.
 export function eventsForDate(events: ScheduleEvent[], date: string): ScheduleEvent[] {
   return events.filter((e) => e.date === date);
