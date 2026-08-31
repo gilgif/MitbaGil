@@ -2,6 +2,7 @@
 
 import type { Meal } from '@/lib/types';
 import { componentSummary } from '@/lib/mealLogic';
+import { IllustrationStage, illustrationForMeal, ApproveIcon, SwapIcon, DislikeIcon } from '@/components/Illustrations';
 
 interface DayRow {
   date: string;
@@ -154,21 +155,11 @@ export default function MenuDayCard({
                 <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', width: 34, textAlign: 'center' }}>
                   {SLOT_LABEL[slot]}
                 </div>
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: '50%',
-                    background: 'var(--c-eat-bg)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 16,
-                    flexShrink: 0,
-                  }}
-                >
-                  {meal.icon}
-                </div>
+                <IllustrationStage
+                  kind={illustrationForMeal({ tags: meal.tags, mealSlot: meal.meal_slot, name: meal.name })}
+                  size={38}
+                  bg="var(--c-eat-bg)"
+                />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700 }}>{meal.name}</div>
                   {/* For meals built from several components, show what's actually in it —
@@ -244,32 +235,31 @@ export default function MenuDayCard({
                         onClick={() => onApprove(slot)}
                         title="מאשרת"
                         style={{
-                          width: 28,
-                          height: 28,
+                          width: 30,
+                          height: 30,
                           borderRadius: '50%',
                           border: 'none',
-                          background: 'var(--cta-black)',
-                          color: '#fff',
+                          background: 'transparent',
+                          padding: 0,
                           cursor: 'pointer',
-                          fontSize: 13,
                         }}
                       >
-                        ✓
+                        <ApproveIcon size={30} />
                       </button>
                       <button
                         onClick={() => onSwap(slot)}
                         title="שנה"
                         style={{
-                          width: 28,
-                          height: 28,
+                          width: 30,
+                          height: 30,
                           borderRadius: '50%',
                           border: 'none',
-                          background: 'var(--bg2)',
+                          background: 'transparent',
+                          padding: 0,
                           cursor: 'pointer',
-                          fontSize: 12,
                         }}
                       >
-                        🔄
+                        <SwapIcon size={30} />
                       </button>
                       <button
                         onClick={() => {
@@ -279,17 +269,16 @@ export default function MenuDayCard({
                         }}
                         title="לא עובד לי — הסירי מהמאגר"
                         style={{
-                          width: 28,
-                          height: 28,
+                          width: 30,
+                          height: 30,
                           borderRadius: '50%',
                           border: 'none',
-                          background: '#fde9e9',
-                          color: '#7a1f1f',
+                          background: 'transparent',
+                          padding: 0,
                           cursor: 'pointer',
-                          fontSize: 12,
                         }}
                       >
-                        👎
+                        <DislikeIcon size={30} />
                       </button>
                     </>
                   )}
