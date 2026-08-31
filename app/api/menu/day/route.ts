@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { poolForSlot, dayTotals, scoreDay, effortBudgetForDay } from '@/lib/menuLogic';
+import { poolForSlot, dayTotals, scoreDay, effortBudgetForDay, mealCategory, HARD_NO_REPEAT } from '@/lib/menuLogic';
 import type { Meal, UserSettings, MealSlot } from '@/lib/types';
 
 function getSupabase() {
@@ -131,7 +131,21 @@ export async function PATCH(req: NextRequest) {
         ),
       };
 
-      const scored = pool
+      // If the OTHER meal today is already in a hard-no-repeat category (fish, salad,
+      // meat), that category is excluded outright from this slot's alternatives — eating
+      // it twice a day isn't a reasonable repeat (unlike eggs, which are fine twice), so
+      // it shouldn't even be offered as an option to swap into. Chicken is a softer case
+      // and is left to the day-scorer's penalty below rather than excluded outright.
+      const otherCategories = [otherA, otherB].map((m) => mealCategory(m));
+      const bannedCategories = HARD_NO_REPEAT.filter((cat) => otherCategories.includes(cat));
+      const swapPool = bannedCategories.length
+        ? pool.filter((r) => !bannedCategories.includes(mealCategory(r)))
+        : pool;
+      // Fall back to the full pool only if excluding these categories would leave
+      // nothing at all — better to offer a repeat than to offer no alternatives.
+      const usablePool = swapPool.length ? swapPool : pool;
+
+      const scored = usablePool
         .filter((r) => r.id !== currentId)
         .map((candidate) => {
           // Rebuild the day with this candidate in the swapped slot, then score it whole.
@@ -153,7 +167,9 @@ export async function PATCH(req: NextRequest) {
 
       // Pick randomly among the top few rather than always the single best, so repeated
       // taps on 🔄 still feel like they're offering real choice rather than one fixed answer.
-      const topN = scored.slice(0, Math.min(4, scored.length));
+      // Offer more real choice on swap — was capped at 4, which is why repeated taps
+      // could feel like they were cycling through the same handful of options.
+      const topN = scored.slice(0, Math.min(8, scored.length));
       alt = topN[Math.floor(Math.random() * topN.length)].candidate;
     }
 
