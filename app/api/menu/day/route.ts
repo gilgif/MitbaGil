@@ -173,14 +173,41 @@ export async function PATCH(req: NextRequest) {
       alt = topN[Math.floor(Math.random() * topN.length)].candidate;
     }
 
+    // Batch-aware update: a swap doesn't just touch today. If today's OLD meal was
+    // shared with later days (either because today was itself a leftover-reuse day, or
+    // because today was the day something got cooked and later days were relying on it
+    // as their leftovers), those days lose their reason to hold that meal too — leaving
+    // them unchanged would either orphan them (a "leftover" day with nothing left to be
+    // leftover FROM) or just leave a stale duplicate sitting there. So the swap cascades
+    // forward through every consecutive day that currently shares the same meal in this
+    // slot, replacing all of them with the new choice — extending the batch forward if
+    // the new choice is itself batch-worthy, or simply giving each of those days the same
+    // fresh pick if it isn't. This never reaches past a day the user has already
+    // individually approved — an explicit approval is respected and stops the cascade.
+    let affectedDates: string[] = [date];
+    if (slot !== 'snack' && currentId) {
+      const { data: laterDays } = await supabase
+        .from('menu_days')
+        .select('date, ' + `${slot}_meal_id, ${slot}_approved`)
+        .eq('user_id', user.id)
+        .gt('date', date)
+        .order('date', { ascending: true });
+
+      for (const later of laterDays || []) {
+        if ((later as any)[`${slot}_meal_id`] !== currentId) break;
+        if ((later as any)[`${slot}_approved`] === true) break;
+        affectedDates.push((later as any).date);
+      }
+    }
+
     const { error: updateError } = await supabase
       .from('menu_days')
       .update({ [`${slot}_meal_id`]: alt.id, [`${slot}_approved`]: false })
       .eq('user_id', user.id)
-      .eq('date', date);
+      .in('date', affectedDates);
     if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
 
-    return NextResponse.json({ success: true, newMeal: alt });
+    return NextResponse.json({ success: true, newMeal: alt, affectedDates });
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
