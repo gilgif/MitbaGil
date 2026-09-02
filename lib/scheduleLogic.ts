@@ -115,6 +115,20 @@ export function buildSchedule({ days, approvals, settings, monthAnchor }: BuildS
   const approvalByDate = new Map(approvals.map((a) => [a.date, a]));
 
   // ── 1. Meals, plus the cooking and prep they imply ──
+  // When the SAME meal (same id) appears again within its own repeat window, that's a
+  // batch: cooked once, eaten as leftovers on the following days. Only the day it was
+  // actually cooked gets cook/prep/thaw events — every other appearance within the
+  // window shows only the meal itself, with a note that it's from that earlier day.
+  //
+  // This tracks the LAST COOKED DATE per meal id (across the whole month, not just
+  // yesterday) rather than only comparing to the immediately preceding day. That
+  // distinction matters: if the person manually swaps out the middle day of a 3-day
+  // batch (e.g. day 2 becomes something else because they didn't feel like the
+  // leftovers that day), day 3 should still correctly recognise "this was cooked on
+  // day 1, still within its window" rather than wrongly showing a fresh cook event
+  // just because its immediate neighbour changed.
+  const lastCookedDate: Record<string, string> = {}; // meal id -> date it was last actually cooked
+
   days.forEach((day) => {
     const approval = approvalByDate.get(day.date);
     (['breakfast', 'lunch', 'dinner'] as const).forEach((slot) => {
@@ -123,6 +137,15 @@ export function buildSchedule({ days, approvals, settings, monthAnchor }: BuildS
       const isApproved = approval ? approval[slot] : false;
       const mealTime = MEAL_TIMES[slot];
 
+      const window = meal.repeat_days || 1;
+      const lastCooked = lastCookedDate[meal.id];
+      const daysSinceCooked = lastCooked
+        ? Math.round((new Date(day.date).getTime() - new Date(lastCooked).getTime()) / 86400000)
+        : Infinity;
+      const isBatchReuse = window > 1 && lastCooked !== undefined && daysSinceCooked > 0 && daysSinceCooked < window;
+      if (!isBatchReuse) lastCookedDate[meal.id] = day.date;
+      const batchStartForDetail = isBatchReuse ? lastCooked! : day.date;
+
       events.push({
         id: `eat-${day.date}-${slot}`,
         date: day.date,
@@ -130,12 +153,15 @@ export function buildSchedule({ days, approvals, settings, monthAnchor }: BuildS
         type: 'eat',
         icon: meal.icon || TYPE_ICON.eat,
         title: meal.name,
-        detail: `${meal.cal} קק״ל · ${meal.protein_g}g חלבון`,
+        detail: isBatchReuse
+          ? `משארית מ-${new Date(batchStartForDetail).toLocaleDateString('he-IL')} · ${meal.cal} קק״ל · ${meal.protein_g}g חלבון`
+          : `${meal.cal} קק״ל · ${meal.protein_g}g חלבון`,
         meal,
       });
 
-      // Cooking / prep only make sense once you've actually committed to the meal.
-      if (!isApproved) return;
+      // Cooking / prep only make sense once you've actually committed to the meal — and
+      // only on the day it's actually cooked, never on a reuse day.
+      if (!isApproved || isBatchReuse) return;
 
       if (needsCookStep(meal)) {
         events.push({
