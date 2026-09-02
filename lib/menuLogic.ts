@@ -35,15 +35,17 @@ function shuffleArray<T>(arr: T[]): T[] {
   return a;
 }
 
-// Filters the full recipe list down to what's eligible for a given slot/season/day/settings,
-// respecting: approval status, day-of-week restrictions (Friday-only, office-day-only),
-// dislikes, and the month-level diet/health filters.
+// Filters the full recipe list down to what's eligible for a given slot/season/day:
+// approval status, day-of-week restrictions (Friday-only, office-day-only), and dislikes.
+// The `settings` parameter is kept (rather than removed) so every existing call site keeps
+// working unchanged — it's accepted but intentionally unused now that diet_mode/health_mode
+// filtering has been removed (every meal is already required to fit the daily targets).
 export function poolForSlot(
   allRecipes: Meal[],
   slot: MealSlot,
   season: Season,
   dayOfWeek: number,
-  settings: Pick<UserSettings, 'diet_mode' | 'health_mode'>
+  _settings?: unknown
 ): Meal[] {
   const candidates = allRecipes.filter((r) => {
     // Baby meals are excluded from the adult menu. Previously keyed off recipe.category;
@@ -61,18 +63,13 @@ export function poolForSlot(
     return true;
   });
 
-  let filtered = candidates;
-  if (settings.diet_mode === 'diet') {
-    const dietOnly = filtered.filter((r) => r.diet_tag === 'דיאטטי');
-    if (dietOnly.length) filtered = dietOnly;
-  }
-  if (settings.health_mode === 'healthy') {
-    const healthyOnly = filtered.filter((r) => r.health_tag === 'בריא');
-    if (healthyOnly.length) filtered = healthyOnly;
-  }
-
-  const seasonal = filtered.filter((r) => !r.season || r.season === 'all' || r.season === season);
-  return seasonal.length ? seasonal : filtered;
+  // diet_mode/health_mode filtering was removed: every meal in the pool (besides Gil's,
+  // which aren't touched) is already required to fit the daily protein/calorie/health
+  // targets via the day-level scorer and the dietitian-guideline cleanup pass, so a
+  // separate manual "diet mode" toggle was redundant and occasionally hid the very
+  // meals needed to hit protein (e.g. the fried fish schnitzel).
+  const seasonal = candidates.filter((r) => !r.season || r.season === 'all' || r.season === season);
+  return seasonal.length ? seasonal : candidates;
 }
 
 // Stateful shuffled-bag generator: call `next()` repeatedly to get non-repeating picks
@@ -140,20 +137,37 @@ export interface DayTotals {
   cal: number;
   freshCount: number; // salad-style / raw meals
   cookedCount: number; // warm, actually-cooked meals
+  lightCount: number; // meals marked 'קל'
+  mediumCount: number; // meals marked 'בינוני'
   complexCount: number; // meals marked 'מורכב' — real kitchen time
   dairyCount: number; // meals containing cow's-milk products
   categories: FoodCategory[]; // one entry per main meal, in breakfast/lunch/dinner order
 }
 
 // Totals for a day, from the three main meals ONLY — snacks are never included.
-export function dayTotals(breakfast: Meal, lunch: Meal, dinner: Meal): DayTotals {
+// `reusedSlots` marks which of breakfast/lunch/dinner are being eaten as leftovers from
+// an earlier batch-cooked day rather than freshly cooked today. Nutritionally (protein,
+// calories, category, fresh/cooked balance) a reused meal counts exactly as it normally
+// would — it's still that dish. But for EFFORT purposes it costs nothing today (no active
+// cooking happens), so it's excluded from the light/medium/complex counts entirely rather
+// than counted at its own difficulty.
+export function dayTotals(
+  breakfast: Meal,
+  lunch: Meal,
+  dinner: Meal,
+  reusedSlots: Set<'breakfast' | 'lunch' | 'dinner'> = new Set()
+): DayTotals {
   const meals = [breakfast, lunch, dinner];
+  const slotNames: ('breakfast' | 'lunch' | 'dinner')[] = ['breakfast', 'lunch', 'dinner'];
+  const effortCountedMeals = meals.filter((_, i) => !reusedSlots.has(slotNames[i]));
   return {
     protein: meals.reduce((s, m) => s + (m?.protein_g || 0), 0),
     cal: meals.reduce((s, m) => s + (m?.cal || 0), 0),
     freshCount: meals.filter((m) => isSaladStyle(m)).length,
     cookedCount: meals.filter((m) => isWarmCooked(m)).length,
-    complexCount: meals.filter((m) => m?.effort === 'מורכב').length,
+    lightCount: effortCountedMeals.filter((m) => m?.effort === 'קל').length,
+    mediumCount: effortCountedMeals.filter((m) => m?.effort === 'בינוני').length,
+    complexCount: effortCountedMeals.filter((m) => m?.effort === 'מורכב').length,
     dairyCount: meals.filter((m) => m?.has_dairy).length,
     categories: meals.map((m) => mealCategory(m)),
   };
@@ -195,19 +209,30 @@ export function effortBudgetForDay(
 //   eggs, legumes, soup    — no restriction; eggs twice a day is explicitly fine
 export type FoodCategory = 'salad' | 'fish' | 'meat' | 'chicken' | 'eggs' | 'legumes' | 'soup' | null;
 
+// 'salad' is checked separately (see below) rather than in this list — a composed
+// meal named "X עם סלט" ("X with salad") is a side addition, not a salad-style meal,
+// while a name that LEADS with "סלט" ("salad of...") genuinely is one. Every other
+// category is safe to match anywhere in the name.
 const CATEGORY_PATTERNS: [FoodCategory, RegExp][] = [
-  ['salad', /סלט|salad/],
   ['soup', /מרק|soup/],
-  ['fish', /דג|סלמון|לברק|דניס|פורל|לוקוס|טונה/],
+  ['fish', /דג|סלמון|לברק|דניס|פורל|לוקוס|טונה|סרדינים/],
   ['chicken', /עוף|הודו|שניצל/],
   ['meat', /בשר|בקר|קציצ|המבורגר|שומר/],
-  ['eggs', /ביצ|חביתה|שקשוקה|פריטטה|אומלט/],
+  // 'חבית' (not 'חביתה') catches every inflection — חביתה, חביתת, חביתת-ירק, etc.
+  ['eggs', /ביצ|חבית|שקשוקה|פריטטה|אומלט/],
   ['legumes', /עדש|חומוס|קטני|קינואה|כוסמת|אמרנט|דוחן/],
 ];
 
 export function mealCategory(meal: Meal | null | undefined): FoodCategory {
   if (!meal) return null;
-  const hay = `${meal.name || ''} ${(meal.tags || []).join(' ')}`;
+  const name = (meal.name || '').trim();
+  // A name that OPENS with "סלט" ("Salad of...", "Big salad with...") is genuinely a
+  // salad-style meal. "סלט" appearing later — almost always as "... עם סלט" ("... with
+  // salad") — signals a side addition to some other dish, so it falls through to be
+  // classified by whatever that other dish actually is (fish, eggs, etc).
+  if (/^סלט/.test(name)) return 'salad';
+
+  const hay = `${name} ${(meal.tags || []).join(' ')}`;
   for (const [category, pattern] of CATEGORY_PATTERNS) {
     if (pattern.test(hay)) return category;
   }
@@ -273,12 +298,31 @@ export function scoreDay(totals: DayTotals, targets: DayTargets): number {
   // weekly cap applied during generation, this lands at roughly twice a week.
   if (totals.dairyCount > 1) score -= (totals.dairyCount - 1) * 50;
 
-  // ── Effort fit: penalise asking for complex cooking on a day with no time for it.
-  // This is what keeps elaborate dishes on Fridays and weekends rather than mid-week.
-  if (targets.effortBudget === 'low' && totals.complexCount > 0) {
-    score -= totals.complexCount * 70;
-  } else if (targets.effortBudget === 'normal' && totals.complexCount > 1) {
-    score -= (totals.complexCount - 1) * 40;
+  // ── Effort fit: three-tier hard hierarchy, per the user's explicit rules.
+  //   low (office/training day)  — every meal must be light. No exceptions: this is the
+  //                                 day with the least real time in the kitchen.
+  //   normal (regular home day)  — at least 2 of 3 meals light; no complex meals at all
+  //                                 (a single medium dish is fine, but a proper "kitchen
+  //                                 project" dish isn't realistic on an ordinary day).
+  //   high (Friday/Saturday)     — the only days complex cooking is allowed, and even
+  //                                 then at most ONE complex meal — not every meal.
+  // These are treated as hard rules (steep penalties) rather than soft nudges, since the
+  // user was explicit that this isn't a preference but a real constraint on her time.
+  if (targets.effortBudget === 'low') {
+    const nonLight = totals.mediumCount + totals.complexCount;
+    if (nonLight > 0) score -= nonLight * 100;
+  } else if (targets.effortBudget === 'normal') {
+    // "At least 2 of 3 light" assumes 3 meals are actually being cooked today. When a
+    // slot is reused from a batch it's excluded from these counts entirely (see
+    // dayTotals), so the requirement scales down accordingly — e.g. if one slot is a
+    // reused leftover, only 2 meals are really being cooked, and at most 1 of those
+    // should be non-light, not 1 of an assumed 3.
+    const countedTotal = totals.lightCount + totals.mediumCount + totals.complexCount;
+    const requiredLight = Math.max(0, countedTotal - 1);
+    if (totals.complexCount > 0) score -= totals.complexCount * 100;
+    if (totals.lightCount < requiredLight) score -= (requiredLight - totals.lightCount) * 70;
+  } else if (targets.effortBudget === 'high') {
+    if (totals.complexCount > 1) score -= (totals.complexCount - 1) * 100;
   }
 
   return score;
@@ -415,6 +459,51 @@ export function generateMonth(
   const dairyDays: number[] = [];
   const WEEKLY_DAIRY_CAP = 2;
 
+  // Batch-cooking state, tracked across the day loop (same pattern as dairyDays above).
+  // When a slot's active batch has daysRemaining > 0, that slot is FIXED to the batched
+  // meal for the day — no cooking happens, no candidate search runs for it, and it's
+  // excluded from effort-budget counting (handled via dayTotals' reusedSlots param).
+  // A new batch starts automatically whenever a freshly-chosen lunch/dinner meal turns
+  // out to be cook-real (total_cook_min > 0) and worth repeating (repeat_days > 1) —
+  // there's no separate "should I batch today" decision; it falls out of whichever meal
+  // the scorer already picked for other reasons (protein, effort, variety).
+  const activeBatches: Partial<Record<'breakfast' | 'lunch' | 'dinner', { meal: Meal; daysRemaining: number }>> = {};
+
+  // Without this, a batch that just finished tends to restart immediately: the same dish
+  // that scored best before is now DOUBLY attractive once its batch ends (still the best
+  // protein/effort fit, and free to become a new batch again), so the scorer greedily
+  // re-picks it forever instead of resting it. This tracks, per meal id, the day index it
+  // becomes eligible again after a batch of it ends — variety over the whole month, not
+  // just within any single day.
+  const batchCooldownUntil: Record<string, number> = {};
+  function cooldownPenalty(meal: Meal | null | undefined, dayIndex: number): number {
+    if (!meal) return 0;
+    const freeAt = batchCooldownUntil[meal.id];
+    return freeAt !== undefined && dayIndex < freeAt ? 150 : 0;
+  }
+
+  // Every score comparison inside the day loop — the initial candidate search AND both
+  // repair passes — goes through this single wrapper, so the cooldown is respected
+  // everywhere a meal could get picked, not just in the first pass. Without this, the
+  // protein/category repair passes (which search for the objectively best replacement,
+  // with no other context) would just undo the cooldown by picking the rested meal
+  // straight back the moment it looks like the best fix.
+  function scoreDayWithCooldown(
+    breakfast: Meal,
+    lunch: Meal,
+    dinner: Meal,
+    targets: DayTargets,
+    dayIndex: number,
+    reused: Set<'breakfast' | 'lunch' | 'dinner'>
+  ): number {
+    return (
+      scoreDay(dayTotals(breakfast, lunch, dinner, reused), targets) -
+      cooldownPenalty(breakfast, dayIndex) -
+      cooldownPenalty(lunch, dayIndex) -
+      cooldownPenalty(dinner, dayIndex)
+    );
+  }
+
   const days: GeneratedDay[] = [];
   for (let i = 0; i < numDays; i++) {
     const d = new Date(year, month0, i + 1);
@@ -428,9 +517,21 @@ export function generateMonth(
       effortBudget: effortBudgetForDay(dow, settings.office_days, settings.strength_days || []),
     };
 
+    // Which slots are locked to a batch today, and to what meal.
+    const fixed: Partial<Record<'breakfast' | 'lunch' | 'dinner', Meal>> = {};
+    (['breakfast', 'lunch', 'dinner'] as const).forEach((slot) => {
+      const batch = activeBatches[slot];
+      if (batch && batch.daysRemaining > 0) fixed[slot] = batch.meal;
+    });
+    const reusedSlots = new Set<'breakfast' | 'lunch' | 'dinner'>(
+      (Object.keys(fixed) as ('breakfast' | 'lunch' | 'dinner')[])
+    );
+
     // Build many candidate DAYS and score each as a whole, rather than picking each meal
-    // in isolation and hoping the totals work out. Alternating which slot leads with a
-    // salad keeps day-to-day variety while the scorer enforces the actual constraints.
+    // in isolation and hoping the totals work out. Fixed (batch-reused) slots are never
+    // re-picked — only the free slots vary between attempts. Alternating which slot leads
+    // with a salad keeps day-to-day variety while the scorer enforces the actual
+    // constraints.
     let bestDay: { breakfast: Meal; lunch: Meal; dinner: Meal } | null = null;
     let bestScore = -Infinity;
 
@@ -438,11 +539,15 @@ export function generateMonth(
       const bagSuffix = attempt === 0 ? '' : `-retry${attempt}`;
       const saladLeadsLunch = (i + attempt) % 2 === 0;
 
-      const breakfast = pickForSlot('breakfast', season, dow, null, bagSuffix);
-      const lunch = pickForSlot('lunch', season, dow, saladLeadsLunch, bagSuffix);
-      const dinner = pickForSlot('dinner', season, dow, !saladLeadsLunch, bagSuffix);
+      const breakfast = fixed.breakfast || pickForSlot('breakfast', season, dow, null, bagSuffix);
+      const lunch =
+        fixed.lunch ||
+        (season === 'summer'
+          ? pickForSlot('lunch', season, dow, saladLeadsLunch, bagSuffix)
+          : pickForSlot('lunch', season, dow, saladLeadsLunch, bagSuffix));
+      const dinner = fixed.dinner || pickForSlot('dinner', season, dow, !saladLeadsLunch, bagSuffix);
 
-      let score = scoreDay(dayTotals(breakfast, lunch, dinner), targets);
+      let score = scoreDayWithCooldown(breakfast, lunch, dinner, targets, i, reusedSlots);
 
       // Weekly dairy cap: if this week already has its allowance, heavily penalise
       // any further dairy so the planner naturally reaches for non-dairy options.
@@ -457,32 +562,45 @@ export function generateMonth(
     }
 
     // Targeted repair: if the best random combination still misses the protein target,
-    // try replacing each slot in turn with the highest-protein legal alternative, keeping
-    // whichever single change most improves the day's overall score. Repeated until the
-    // target is met or no swap helps — this is what rescues days where every random pick
-    // happened to be low-protein.
+    // try replacing each FREE slot in turn with the highest-protein legal alternative,
+    // keeping whichever single change most improves the day's overall score. Fixed
+    // (batch-reused) slots are never touched — swapping out of an active batch would
+    // break the whole point of cooking once and eating it over several days.
     if (bestDay) {
       for (let pass = 0; pass < 3; pass++) {
         const current = bestDay as { breakfast: Meal; lunch: Meal; dinner: Meal };
-        const totals = dayTotals(current.breakfast, current.lunch, current.dinner);
+        const totals = dayTotals(current.breakfast, current.lunch, current.dinner, reusedSlots);
         if (totals.protein >= proteinFloor) break;
 
         let improvedDay = current;
-        let improvedScore = scoreDay(totals, targets);
+        let improvedScore = scoreDayWithCooldown(
+          current.breakfast,
+          current.lunch,
+          current.dinner,
+          targets,
+          i,
+          reusedSlots
+        );
 
-        (['breakfast', 'lunch', 'dinner'] as const).forEach((slot) => {
-          const boosted = pickHighestProteinForSlot(slot, season, dow);
-          if (!boosted || boosted.id === current[slot].id) return;
-          const candidate = { ...current, [slot]: boosted };
-          const candidateScore = scoreDay(
-            dayTotals(candidate.breakfast, candidate.lunch, candidate.dinner),
-            targets
-          );
-          if (candidateScore > improvedScore) {
-            improvedScore = candidateScore;
-            improvedDay = candidate;
-          }
-        });
+        (['breakfast', 'lunch', 'dinner'] as const)
+          .filter((slot) => !fixed[slot])
+          .forEach((slot) => {
+            const boosted = pickHighestProteinForSlot(slot, season, dow);
+            if (!boosted || boosted.id === current[slot].id) return;
+            const candidate = { ...current, [slot]: boosted };
+            const candidateScore = scoreDayWithCooldown(
+              candidate.breakfast,
+              candidate.lunch,
+              candidate.dinner,
+              targets,
+              i,
+              reusedSlots
+            );
+            if (candidateScore > improvedScore) {
+              improvedScore = candidateScore;
+              improvedDay = candidate;
+            }
+          });
 
         if (improvedDay === current) break; // no swap helped; stop trying
         bestDay = improvedDay;
@@ -493,21 +611,22 @@ export function generateMonth(
     // reasonable repeat — unlike eggs, which are fine twice. If the best day still has
     // one of these categories twice after the protein repair pass above, replace one
     // occurrence with the best legal alternative for that slot that isn't the same
-    // category. This is unconditional whenever a legal alternative exists: these are
-    // hard rules, worth some cost elsewhere (e.g. a slightly lower-protein day) to
-    // satisfy. Runs once per hard-ban category in case more than one is duplicated.
+    // category. Fixed (batch-reused) slots are never chosen as the one to fix — only
+    // free slots are eligible, same reasoning as the protein repair above.
     if (bestDay) {
       for (const category of HARD_NO_REPEAT) {
         const day = bestDay as { breakfast: Meal; lunch: Meal; dinner: Meal };
         const slots = (['breakfast', 'lunch', 'dinner'] as const).filter(
-          (s) => mealCategory(day[s]) === category
+          (s) => mealCategory(day[s]) === category && !fixed[s]
         );
-        if (slots.length <= 1) continue;
+        if (slots.length === 0) continue;
+        // If BOTH occurrences of the category are fixed (both from active batches),
+        // there's nothing to do — a batch already in progress isn't broken to fix this.
+        const totalOfCategory = (['breakfast', 'lunch', 'dinner'] as const).filter(
+          (s) => mealCategory(day[s]) === category
+        ).length;
+        if (totalOfCategory <= 1) continue;
 
-        // Prefer fixing dinner first — for fish specifically this is where the 'any'
-        // slot introduced the duplicate possibility in the first place; for salad/meat
-        // it's a reasonable default tie-break since dinner is the most swap-flexible
-        // meal generally.
         const slotToFix = slots.includes('dinner') ? 'dinner' : slots[0];
         const candidates = poolForSlot(allRecipes, slotToFix, season, dow, settings).filter(
           (r) => r.only_day === null && !r.only_days && mealCategory(r) !== category
@@ -515,12 +634,12 @@ export function generateMonth(
         if (!candidates.length) continue;
 
         let best = candidates[0];
-        let bestScore = -Infinity;
+        let bestFixScore = -Infinity;
         candidates.forEach((c) => {
           const trial = { ...day, [slotToFix]: c };
-          const s = scoreDay(dayTotals(trial.breakfast, trial.lunch, trial.dinner), targets);
-          if (s > bestScore) {
-            bestScore = s;
+          const s = scoreDayWithCooldown(trial.breakfast, trial.lunch, trial.dinner, targets, i, reusedSlots);
+          if (s > bestFixScore) {
+            bestFixScore = s;
             best = c;
           }
         });
@@ -537,6 +656,28 @@ export function generateMonth(
       dairyDays.push(i);
     }
 
+    // Advance the batch state for next iteration:
+    //  - fixed slots (reused today) tick down by one day, expiring at 0
+    //  - free slots whose freshly-chosen meal turned out to be a real, repeatable cooked
+    //    dish automatically start a new batch — this is the only place batches begin
+    (['breakfast', 'lunch', 'dinner'] as const).forEach((slot) => {
+      if (fixed[slot]) {
+        const batch = activeBatches[slot]!;
+        batch.daysRemaining -= 1;
+        if (batch.daysRemaining <= 0) {
+          // Rest this dish for roughly as long as its own batch run before it's allowed
+          // to start a new batch again — otherwise it just cycles back-to-back forever.
+          batchCooldownUntil[batch.meal.id] = i + 1 + (batch.meal.repeat_days || 1);
+          delete activeBatches[slot];
+        }
+      } else {
+        const chosen = bestDay![slot];
+        if (chosen && chosen.total_cook_min > 0 && (chosen.repeat_days || 1) > 1) {
+          activeBatches[slot] = { meal: chosen, daysRemaining: chosen.repeat_days - 1 };
+        }
+      }
+    });
+
     days.push({
       date: d.toISOString().slice(0, 10),
       season,
@@ -547,5 +688,6 @@ export function generateMonth(
     });
   }
 
+  return days;
   return days;
 }
