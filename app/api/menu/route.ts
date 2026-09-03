@@ -103,10 +103,14 @@ export async function POST(req: NextRequest) {
     lunch_meal_id: day.lunch.id,
     dinner_meal_id: day.dinner.id,
     snack_meal_id: day.snack ? day.snack.id : null,
-    breakfast_approved: false,
-    lunch_approved: false,
-    dinner_approved: false,
-    snack_approved: false,
+    // Every meal is approved by default now — a generated month is presumed good until
+    // swapped, rather than requiring a manual per-meal confirmation ritual. Shopping and
+    // the cooking schedule read this flag directly, so this single change is what makes
+    // "just swap what you don't want" actually work end-to-end.
+    breakfast_approved: true,
+    lunch_approved: true,
+    dinner_approved: true,
+    snack_approved: !!day.snack,
   }));
 
   const { error: insertError } = await supabase.from('menu_days').insert(rows);
