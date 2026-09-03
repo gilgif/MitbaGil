@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { poolForSlot, dayTotals, scoreDay, effortBudgetForDay, mealCategory, HARD_NO_REPEAT } from '@/lib/menuLogic';
+import { poolForSlot, dayTotals, scoreDay, effortBudgetForDay, mealCategory, HARD_NO_REPEAT, isWarmCooked, isSaladStyle } from '@/lib/menuLogic';
 import type { Meal, UserSettings, MealSlot } from '@/lib/types';
 
 function getSupabase() {
@@ -29,10 +29,14 @@ export async function PATCH(req: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-  const { date, slot, action } = (await req.json()) as {
+  const { date, slot, action, preference } = (await req.json()) as {
     date: string;
     slot: MealSlot;
     action: 'approve' | 'swap' | 'dislike';
+    // Optional temperature preference for a swap, requested at the moment of swapping
+    // rather than baked into month generation — "give me something warm today" is a
+    // real-time craving, not something the calendar can predict in advance.
+    preference?: 'hot' | 'cold';
   };
 
   if (action === 'approve') {
@@ -58,11 +62,30 @@ export async function PATCH(req: NextRequest) {
 
     const { data: settings } = await supabase.from('user_settings').select('*').eq('user_id', user.id).single();
     const officeDays = (settings as UserSettings)?.office_days || [];
+    const currentId = day[`${slot}_meal_id`];
+
+    // Office-day breakfast/lunch is only locked when the CURRENT meal is genuinely the
+    // fixed recipe for that day (tagged with only_days matching today) — e.g. the Cibus
+    // lunch. When no fixed recipe applies, breakfast/lunch rotate freely just like any
+    // other day, so they must stay swappable too. The previous version blocked the whole
+    // slot on any office day regardless of what was actually there, which incorrectly
+    // blocked normal rotating meals (like an amaranth breakfast) that were never fixed
+    // in the first place.
     if (officeDays.includes(dow) && (slot === 'breakfast' || slot === 'lunch')) {
-      return NextResponse.json({ error: 'Office-day slots are fixed and cannot be swapped' }, { status: 400 });
+      const { data: currentMeal } = await supabase
+        .from('meals')
+        .select('only_days')
+        .eq('id', currentId)
+        .single();
+      const isGenuinelyFixed = (currentMeal as any)?.only_days?.includes(dow);
+      if (isGenuinelyFixed) {
+        return NextResponse.json(
+          { error: 'זו ארוחת יום המשרד הקבועה שלך ולא ניתנת להחלפה' },
+          { status: 400 }
+        );
+      }
     }
 
-    const currentId = day[`${slot}_meal_id`];
 
     // For 'dislike': mark the current recipe as disliked so it stops appearing in any
     // future month generation, in addition to swapping it out of today.
@@ -143,7 +166,18 @@ export async function PATCH(req: NextRequest) {
         : pool;
       // Fall back to the full pool only if excluding these categories would leave
       // nothing at all — better to offer a repeat than to offer no alternatives.
-      const usablePool = swapPool.length ? swapPool : pool;
+      let usablePool = swapPool.length ? swapPool : pool;
+
+      // Apply the hot/cold preference, if one was requested. Falls back to the
+      // unfiltered pool if nothing matches, rather than returning "no alternatives" —
+      // a wrong-temperature suggestion is better than none at all.
+      if (preference === 'hot') {
+        const hot = usablePool.filter((r) => isWarmCooked(r));
+        if (hot.length) usablePool = hot;
+      } else if (preference === 'cold') {
+        const cold = usablePool.filter((r) => isSaladStyle(r));
+        if (cold.length) usablePool = cold;
+      }
 
       const scored = usablePool
         .filter((r) => r.id !== currentId)
@@ -182,27 +216,34 @@ export async function PATCH(req: NextRequest) {
     // forward through every consecutive day that currently shares the same meal in this
     // slot, replacing all of them with the new choice — extending the batch forward if
     // the new choice is itself batch-worthy, or simply giving each of those days the same
-    // fresh pick if it isn't. This never reaches past a day the user has already
-    // individually approved — an explicit approval is respected and stops the cascade.
+    // fresh pick if it isn't.
+    //
+    // Note: this no longer stops at an "approved" day. Under the auto-approve model every
+    // day starts out approved by default, so that flag can't distinguish "the user
+    // deliberately locked this in" from "this is just what generation produced" — it
+    // stopped carrying that meaning. The meal-id match itself is what bounds the cascade:
+    // it only ever touches days that still hold the exact meal being replaced.
     let affectedDates: string[] = [date];
     if (slot !== 'snack' && currentId) {
       const { data: laterDays } = await supabase
         .from('menu_days')
-        .select('date, ' + `${slot}_meal_id, ${slot}_approved`)
+        .select('date, ' + `${slot}_meal_id`)
         .eq('user_id', user.id)
         .gt('date', date)
         .order('date', { ascending: true });
 
       for (const later of laterDays || []) {
         if ((later as any)[`${slot}_meal_id`] !== currentId) break;
-        if ((later as any)[`${slot}_approved`] === true) break;
         affectedDates.push((later as any).date);
       }
     }
 
+    // The new choice is approved immediately — under the auto-approve model, picking it
+    // via swap IS the deliberate confirmation, so there's no separate approve step left
+    // to wait for.
     const { error: updateError } = await supabase
       .from('menu_days')
-      .update({ [`${slot}_meal_id`]: alt.id, [`${slot}_approved`]: false })
+      .update({ [`${slot}_meal_id`]: alt.id, [`${slot}_approved`]: true })
       .eq('user_id', user.id)
       .in('date', affectedDates);
     if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
