@@ -63,13 +63,13 @@ export function poolForSlot(
     return true;
   });
 
-  // diet_mode/health_mode filtering was removed: every meal in the pool (besides Gil's,
-  // which aren't touched) is already required to fit the daily protein/calorie/health
-  // targets via the day-level scorer and the dietitian-guideline cleanup pass, so a
-  // separate manual "diet mode" toggle was redundant and occasionally hid the very
-  // meals needed to hit protein (e.g. the fried fish schnitzel).
-  const seasonal = candidates.filter((r) => !r.season || r.season === 'all' || r.season === season);
-  return seasonal.length ? seasonal : candidates;
+  // Season used to filter the pool here (winter → only winter/all-tagged meals). Removed:
+  // the user's actual craving on a given day doesn't reliably track the calendar season,
+  // so the full pool is always available during generation. Anyone wanting something
+  // specifically warm or cold on a given day can ask for it at swap time instead (see the
+  // hot/cold preference handled in the swap endpoint) — that's a much better place for
+  // this decision than a blanket rule baked into month generation.
+  return candidates;
 }
 
 // Stateful shuffled-bag generator: call `next()` repeatedly to get non-repeating picks
@@ -142,6 +142,7 @@ export interface DayTotals {
   complexCount: number; // meals marked 'מורכב' — real kitchen time
   dairyCount: number; // meals containing cow's-milk products
   categories: FoodCategory[]; // one entry per main meal, in breakfast/lunch/dinner order
+  hasSalad: boolean; // whether any meal (or a component within one) is salad-style
 }
 
 // Totals for a day, from the three main meals ONLY — snacks are never included.
@@ -170,6 +171,7 @@ export function dayTotals(
     complexCount: effortCountedMeals.filter((m) => m?.effort === 'מורכב').length,
     dairyCount: meals.filter((m) => m?.has_dairy).length,
     categories: meals.map((m) => mealCategory(m)),
+    hasSalad: meals.some((m) => mealHasSaladPresence(m)),
   };
 }
 
@@ -246,6 +248,19 @@ export function isFishMeal(meal: Meal | null | undefined): boolean {
   return mealCategory(meal) === 'fish';
 }
 
+// Whether a meal counts as having "a salad" somewhere in it — either the whole dish IS
+// one (mealCategory === 'salad'), or it has a salad-style side component riding along
+// with the protein (e.g. "רצועות עוף + סלט ירקות קטן" — the small salad component still
+// counts, even though the composed dish as a whole reads as "chicken", not "salad").
+export function mealHasSaladPresence(meal: Meal | null | undefined): boolean {
+  if (!meal) return false;
+  if (mealCategory(meal) === 'salad') return true;
+  return (meal.components || []).some((c) => {
+    const name = c.recipe?.name || c.simple_name || '';
+    return /סלט/.test(name);
+  });
+}
+
 export function scoreDay(totals: DayTotals, targets: DayTargets): number {
   let score = 1000;
 
@@ -292,6 +307,13 @@ export function scoreDay(totals: DayTotals, targets: DayTargets): number {
     const count = totals.categories.filter((c) => c === category).length;
     if (count > 1) score -= (count - 1) * 35;
   }
+
+  // ── Daily salad: a soft preference, not a hard requirement. A day with some fresh
+  // salad presence somewhere — whether it's the whole meal or just a side component
+  // riding along with the protein — is mildly preferred over one with none at all. This
+  // is deliberately light relative to the hard rules above: it should tip a close
+  // decision toward including a salad, not force one in when nothing reasonable fits.
+  if (!totals.hasSalad) score -= 45;
 
   // ── Dairy: the dietitian advises minimising cow's-milk products. Rather than banning
   // them, we allow at most one dairy meal a day and penalise more — combined with the
