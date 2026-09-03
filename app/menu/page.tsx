@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import BottomNav from '@/components/BottomNav';
 import MenuDayCard from '@/components/MenuDayCard';
-import RecipeCard from '@/components/RecipeCard';
-import type { Recipe, UserSettings, ShoppingTrip } from '@/lib/types';
+import MealCard from '@/components/MealCard';
+import type { Meal, UserSettings, ShoppingTrip } from '@/lib/types';
 
 const HE_MONTHS = [
   'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
@@ -22,12 +22,17 @@ export default function MenuPage() {
   const [monthOffset, setMonthOffset] = useState<0 | 1>(0); // 0 = current, 1 = next
   const [days, setDays] = useState<any[] | null>(null);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [recipes, setRecipes] = useState<Meal[]>([]);
   const [recipeFilter, setRecipeFilter] = useState<'all' | 'approved' | 'pending'>('all');
   const [showDisliked, setShowDisliked] = useState(false);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [shoppingPlan, setShoppingPlan] = useState<{ trips: ShoppingTrip[]; totalMeals: number } | null>(null);
   const [generating, setGenerating] = useState(false);
+  // Purely a UX signal, not a functional gate — shopping and the schedule already reflect
+  // whatever's currently in the plan live, with or without this. It exists only to give a
+  // clear "I'm done reviewing" moment, since swapping-until-satisfied with no formal end
+  // point can otherwise feel like it's never really finished.
+  const [monthReviewed, setMonthReviewed] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const targetDate = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
@@ -81,44 +86,44 @@ export default function MenuPage() {
   async function handleRegenerate() {
     const ok = window.confirm('בטוחה? זה יחליף את כל הארוחות המוצעות החודש בהצעות חדשות. אישורים קיימים יימחקו.');
     if (!ok) return;
+    setMonthReviewed(false);
     handleGenerate();
   }
 
-  async function handleApprove(date: string, slot: 'breakfast' | 'lunch' | 'dinner' | 'snack') {
-    await fetch('/api/menu/day', {
+  async function handleSwap(
+    date: string,
+    slot: 'breakfast' | 'lunch' | 'dinner' | 'snack',
+    preference?: 'hot' | 'cold'
+  ) {
+    const res = await fetch('/api/menu/day', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, slot, action: 'approve' }),
+      body: JSON.stringify({ date, slot, action: 'swap', preference }),
     });
-    loadMenu();
-  }
-
-  async function handleSwap(date: string, slot: 'breakfast' | 'lunch' | 'dinner' | 'snack') {
-    await fetch('/api/menu/day', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, slot, action: 'swap' }),
-    });
+    // A blocked or failed swap must tell the person why, rather than silently doing
+    // nothing — a click with zero feedback reads as "the button is broken", not "this
+    // meal can't be swapped for a good reason".
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(body.error || 'לא ניתן להחליף את הארוחה הזו כרגע');
+      return;
+    }
     loadMenu();
   }
 
   async function handleDislike(date: string, slot: 'breakfast' | 'lunch' | 'dinner' | 'snack') {
-    await fetch('/api/menu/day', {
+    const res = await fetch('/api/menu/day', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ date, slot, action: 'dislike' }),
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(body.error || 'לא ניתן להחליף את הארוחה הזו כרגע');
+      return;
+    }
     loadMenu();
     loadRecipes(); // the disliked recipe should now show as disliked in the recipe pool too
-  }
-
-  async function handleFilterChange(key: 'diet_mode' | 'health_mode', value: string) {
-    await fetch('/api/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [key]: value }),
-    });
-    loadSettings();
   }
 
   async function handleRecipeApprove(id: string) {
@@ -135,7 +140,7 @@ export default function MenuPage() {
     loadRecipes();
   }
 
-  async function handleRecipeLike(recipe: Recipe) {
+  async function handleRecipeLike(recipe: Meal) {
     await fetch(`/api/recipes/${recipe.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -144,7 +149,7 @@ export default function MenuPage() {
     loadRecipes();
   }
 
-  async function handleRecipeDislike(recipe: Recipe) {
+  async function handleRecipeDislike(recipe: Meal) {
     await fetch(`/api/recipes/${recipe.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -154,7 +159,10 @@ export default function MenuPage() {
   }
 
   let filteredRecipes = recipes;
-  if (recipeFilter === 'approved') filteredRecipes = recipes.filter((r) => r.status === 'approved');
+  // "שלי" used to check status==='approved', which almost everything already is — so it
+  // barely filtered anything. It now checks the actual 'גיל' tag, so it genuinely shows
+  // only your own recipes as intended.
+  if (recipeFilter === 'approved') filteredRecipes = recipes.filter((r) => r.tags?.includes('גיל'));
   if (recipeFilter === 'pending') filteredRecipes = recipes.filter((r) => r.status === 'pending');
   const dislikedRecipes = filteredRecipes.filter((r) => r.disliked);
   const mainRecipes = filteredRecipes.filter((r) => !r.disliked);
@@ -179,13 +187,13 @@ export default function MenuPage() {
         <div className="toggle-group" style={{ marginBottom: 12 }}>
           <button
             className={`toggle-opt ${monthOffset === 0 ? 'active' : ''}`}
-            onClick={() => setMonthOffset(0)}
+            onClick={() => { setMonthOffset(0); setMonthReviewed(false); }}
           >
             חודש נוכחי
           </button>
           <button
             className={`toggle-opt ${monthOffset === 1 ? 'active' : ''}`}
-            onClick={() => setMonthOffset(1)}
+            onClick={() => { setMonthOffset(1); setMonthReviewed(false); }}
           >
             חודש הבא
           </button>
@@ -205,45 +213,6 @@ export default function MenuPage() {
         >
           {season === 'winter' ? '❄️ תפריט חורפי — מרקים ומנות חמות' : '☀️ תפריט קיצי — טרי, קר וקליל'}
         </div>
-
-        {settings && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-2)' }}>רמת דיאטה</span>
-              <div className="toggle-group" style={{ maxWidth: 220 }}>
-                <button
-                  className={`toggle-opt ${settings.diet_mode === 'any' ? 'active' : ''}`}
-                  onClick={() => handleFilterChange('diet_mode', 'any')}
-                >
-                  רגיל
-                </button>
-                <button
-                  className={`toggle-opt ${settings.diet_mode === 'diet' ? 'active' : ''}`}
-                  onClick={() => handleFilterChange('diet_mode', 'diet')}
-                >
-                  דיאטטי בלבד
-                </button>
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-2)' }}>רמת בריאות</span>
-              <div className="toggle-group" style={{ maxWidth: 220 }}>
-                <button
-                  className={`toggle-opt ${settings.health_mode === 'any' ? 'active' : ''}`}
-                  onClick={() => handleFilterChange('health_mode', 'any')}
-                >
-                  רגיל
-                </button>
-                <button
-                  className={`toggle-opt ${settings.health_mode === 'healthy' ? 'active' : ''}`}
-                  onClick={() => handleFilterChange('health_mode', 'healthy')}
-                >
-                  בריא בלבד
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {loading && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>טוענת...</div>}
 
@@ -270,13 +239,48 @@ export default function MenuPage() {
                 day={day}
                 expanded={expandedDay === day.date}
                 onToggle={() => setExpandedDay(expandedDay === day.date ? null : day.date)}
-                onApprove={(slot) => handleApprove(day.date, slot)}
-                onSwap={(slot) => handleSwap(day.date, slot)}
+                onSwap={(slot, preference) => handleSwap(day.date, slot, preference)}
                 onDislike={(slot) => handleDislike(day.date, slot)}
                 dailyProteinTarget={settings?.daily_protein_target || 95}
                 dailyCalTarget={settings?.daily_cal_target || 1500}
               />
             ))}
+
+            {/* A clear "I'm done reviewing" moment. Shopping and the schedule already
+                reflect the plan live — this doesn't gate or freeze anything — it just
+                gives a satisfying end point after swapping through the month, and a
+                direct way to jump to what's next. */}
+            {!monthReviewed ? (
+              <button
+                className="btn btn-primary"
+                onClick={() => setMonthReviewed(true)}
+                style={{ width: '100%', marginTop: 8 }}
+              >
+                ✓ סיימתי — בנה קניות ולו״ז
+              </button>
+            ) : (
+              <div
+                className="card"
+                style={{
+                  padding: 16,
+                  marginTop: 8,
+                  textAlign: 'center',
+                  background: '#e3f6ea',
+                }}
+              >
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#16341f', marginBottom: 10 }}>
+                  🎉 התפריט מוכן! עדיין אפשר להחליף כל ארוחה בכל זמן.
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                  <Link href="/schedule" className="btn btn-ghost btn-sm">
+                    ללו״ז
+                  </Link>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setMonthReviewed(false)}>
+                    להמשיך לעבור על התפריט
+                  </button>
+                </div>
+              </div>
+            )}
 
             {shoppingPlan && shoppingPlan.trips.length > 0 && (
               <div style={{ marginTop: 20 }}>
@@ -307,9 +311,9 @@ export default function MenuPage() {
 
         <hr style={{ margin: '24px 0', border: 'none', borderTop: '1px solid var(--border)' }} />
 
-        <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 4 }}>מאגר המתכונים שלי</div>
+        <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 4 }}>בנק ארוחות</div>
         <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 16 }}>
-          מתכונים שאת מכירה ואוהבת + הצעות חדשות לאישור
+          ארוחות שאת מכירה ואוהבת + הצעות חדשות לאישור — כולל ארוחות מורכבות מכמה מנות
         </div>
 
         <div className="toggle-group" style={{ marginBottom: 16 }}>
@@ -331,9 +335,9 @@ export default function MenuPage() {
         </div>
 
         {mainRecipes.map((r) => (
-          <RecipeCard
+          <MealCard
             key={r.id}
-            recipe={r}
+            meal={r}
             onApprove={() => handleRecipeApprove(r.id)}
             onReject={() => handleRecipeReject(r.id)}
             onLike={() => handleRecipeLike(r)}
@@ -366,9 +370,9 @@ export default function MenuPage() {
             {showDisliked && (
               <div style={{ paddingTop: 8, opacity: 0.7 }}>
                 {dislikedRecipes.map((r) => (
-                  <RecipeCard
+                  <MealCard
                     key={r.id}
-                    recipe={r}
+                    meal={r}
                     onLike={() => handleRecipeLike(r)}
                     onDislike={() => handleRecipeDislike(r)}
                   />
