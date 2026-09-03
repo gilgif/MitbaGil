@@ -1,8 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import type { Meal } from '@/lib/types';
 import { componentSummary } from '@/lib/mealLogic';
-import { IllustrationStage, illustrationForMeal, ApproveIcon, SwapIcon, DislikeIcon } from '@/components/Illustrations';
+import { IllustrationStage, illustrationForMeal, SwapIcon, DislikeIcon } from '@/components/Illustrations';
+import ActivityPopup from '@/components/ActivityPopup';
+import type { ScheduleEvent } from '@/lib/scheduleLogic';
 
 interface DayRow {
   date: string;
@@ -32,7 +35,6 @@ export default function MenuDayCard({
   day,
   expanded,
   onToggle,
-  onApprove,
   onSwap,
   onDislike,
   dailyProteinTarget,
@@ -41,12 +43,20 @@ export default function MenuDayCard({
   day: DayRow;
   expanded: boolean;
   onToggle: () => void;
-  onApprove: (slot: SlotName) => void;
-  onSwap: (slot: SlotName) => void;
+  onSwap: (slot: SlotName, preference?: 'hot' | 'cold') => void;
   onDislike: (slot: SlotName) => void;
   dailyProteinTarget: number;
   dailyCalTarget: number;
 }) {
+  // Which slot's swap-preference menu is currently open, if any — the swap button opens
+  // a small choice ("hot" / "cold" / "surprise me") rather than firing immediately, since
+  // what someone wants to eat is a real-time craving, not something worth predicting in
+  // advance during month generation.
+  const [swapMenuSlot, setSwapMenuSlot] = useState<SlotName | null>(null);
+  // Which meal's detail popup is open, if any — lets you see exactly why a meal is
+  // tagged "complex" (which components, how long each takes to cook) instead of just
+  // guessing from the name.
+  const [detailSlot, setDetailSlot] = useState<SlotName | null>(null);
   const d = new Date(day.date);
 
   const isApprovedFor = (s: SlotName): boolean => {
@@ -155,25 +165,44 @@ export default function MenuDayCard({
                 <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', width: 34, textAlign: 'center' }}>
                   {SLOT_LABEL[slot]}
                 </div>
-                <IllustrationStage
-                  kind={illustrationForMeal({ tags: meal.tags, mealSlot: meal.meal_slot, name: meal.name })}
-                  size={38}
-                  bg="var(--c-eat-bg)"
-                />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>{meal.name}</div>
-                  {/* For meals built from several components, show what's actually in it —
-                      e.g. "רצועות עוף בפפריקה + אפונה מאודה + סלט קטן". Single-component
-                      meals would just repeat the name, so they're skipped. */}
-                  {(meal.components?.length || 0) > 1 && (
-                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
-                      {componentSummary(meal.components || [])}
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
-                    {meal.tags?.map((t) => (
+                <div
+                  onClick={() => setDetailSlot(slot)}
+                  style={{ display: 'contents', cursor: 'pointer' }}
+                >
+                  <IllustrationStage
+                    kind={illustrationForMeal({ tags: meal.tags, mealSlot: meal.meal_slot, name: meal.name })}
+                    size={38}
+                    bg="var(--c-eat-bg)"
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{meal.name}</div>
+                    {/* For meals built from several components, show what's actually in it —
+                        e.g. "רצועות עוף בפפריקה + אפונה מאודה + סלט קטן". Single-component
+                        meals would just repeat the name, so they're skipped. */}
+                    {(meal.components?.length || 0) > 1 && (
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                        {componentSummary(meal.components || [])}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                      {meal.tags?.map((t) => (
+                        <span
+                          key={t}
+                          style={{
+                            fontSize: 9.5,
+                            fontWeight: 700,
+                            color: 'var(--text-3)',
+                            background: 'var(--bg2)',
+                            padding: '2px 7px',
+                            borderRadius: 50,
+                          }}
+                        >
+                          {t}
+                        </span>
+                      ))}
+                      <span style={macroTagStyle}>🥩 {meal.protein_g}g</span>
+                      <span style={macroTagStyle}>🔥 {meal.cal}</span>
                       <span
-                        key={t}
                         style={{
                           fontSize: 9.5,
                           fontWeight: 700,
@@ -183,84 +212,112 @@ export default function MenuDayCard({
                           borderRadius: 50,
                         }}
                       >
-                        {t}
+                        ⏱ {meal.total_prep_min + meal.total_cook_min} דק׳
                       </span>
-                    ))}
-                    <span
-                      style={{
-                        fontSize: 9.5,
-                        fontWeight: 700,
-                        color: 'var(--text-3)',
-                        background: 'var(--bg2)',
-                        padding: '2px 7px',
-                        borderRadius: 50,
-                      }}
-                    >
-                      ⏱ {meal.total_prep_min + meal.total_cook_min} דק׳
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 9.5,
-                        fontWeight: 700,
-                        padding: '2px 7px',
-                        borderRadius: 50,
-                        background:
-                          meal.effort === 'קל' ? '#e3f6ea' : meal.effort === 'בינוני' ? 'var(--c-recv-bg)' : '#fde9e9',
-                        color:
-                          meal.effort === 'קל' ? '#16341f' : meal.effort === 'בינוני' ? '#8a6000' : '#7a1f1f',
-                      }}
-                      title="רמת מאמץ: זמן + מספר שלבים + מספר שיטות בישול"
-                    >
-                      {meal.effort === 'קל' ? '🟢' : meal.effort === 'בינוני' ? '🟡' : '🔴'} {meal.effort}
-                    </span>
+                      <span
+                        style={{
+                          fontSize: 9.5,
+                          fontWeight: 700,
+                          padding: '2px 7px',
+                          borderRadius: 50,
+                          background:
+                            meal.effort === 'קל' ? '#e3f6ea' : meal.effort === 'בינוני' ? 'var(--c-recv-bg)' : '#fde9e9',
+                          color:
+                            meal.effort === 'קל' ? '#16341f' : meal.effort === 'בינוני' ? '#8a6000' : '#7a1f1f',
+                        }}
+                        title="רמת מאמץ: זמן + מספר שלבים + מספר שיטות בישול — הקישי על הארוחה לפרטים"
+                      >
+                        {meal.effort === 'קל' ? '🟢' : meal.effort === 'בינוני' ? '🟡' : '🔴'} {meal.effort}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-                  {approved ? (
-                    <span
-                      style={{
-                        padding: '4px 10px',
-                        fontSize: 11,
-                        background: '#6ee7a0',
-                        color: '#16341f',
-                        borderRadius: 50,
-                        fontWeight: 800,
-                      }}
-                    >
-                      ✓
-                    </span>
-                  ) : (
-                    <>
-                      <button
-                        onClick={() => onApprove(slot)}
-                        title="מאשרת"
-                        style={{
-                          width: 30,
-                          height: 30,
-                          borderRadius: '50%',
-                          border: 'none',
-                          background: 'transparent',
-                          padding: 0,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <ApproveIcon size={30} />
-                      </button>
-                      <button
-                        onClick={() => onSwap(slot)}
-                        title="שנה"
-                        style={{
-                          width: 30,
-                          height: 30,
-                          borderRadius: '50%',
-                          border: 'none',
-                          background: 'transparent',
-                          padding: 0,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <SwapIcon size={30} />
-                      </button>
+                  {/* Every meal is "in the plan" by default now (auto-approved on
+                      generation, and a swap immediately confirms the new choice too),
+                      so this is a passive status badge rather than something to click —
+                      there's no longer a separate confirmation step to wait for. */}
+                  <span
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: 11,
+                      background: '#6ee7a0',
+                      color: '#16341f',
+                      borderRadius: 50,
+                      fontWeight: 800,
+                    }}
+                  >
+                    ✓
+                  </span>
+                  <div style={{ position: 'relative' }}>
+                        <button
+                          onClick={() => setSwapMenuSlot(swapMenuSlot === slot ? null : slot)}
+                          title="שנה"
+                          style={{
+                            width: 30,
+                            height: 30,
+                            borderRadius: '50%',
+                            border: 'none',
+                            background: 'transparent',
+                            padding: 0,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <SwapIcon size={30} />
+                        </button>
+
+                        {swapMenuSlot === slot && (
+                          <>
+                            {/* Backdrop to close the menu on an outside tap */}
+                            <div
+                              onClick={() => setSwapMenuSlot(null)}
+                              style={{ position: 'fixed', inset: 0, zIndex: 90 }}
+                            />
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: 34,
+                                left: 0,
+                                zIndex: 91,
+                                background: 'var(--surface)',
+                                borderRadius: 14,
+                                boxShadow: '0 4px 16px rgba(0,0,0,.15)',
+                                padding: 6,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 2,
+                                minWidth: 130,
+                              }}
+                            >
+                              {[
+                                { label: '🎲 הפתעה', pref: undefined },
+                                { label: '🔥 משהו חם', pref: 'hot' as const },
+                                { label: '🧊 משהו קר', pref: 'cold' as const },
+                              ].map((opt) => (
+                                <button
+                                  key={opt.label}
+                                  onClick={() => {
+                                    setSwapMenuSlot(null);
+                                    onSwap(slot, opt.pref);
+                                  }}
+                                  style={{
+                                    textAlign: 'right',
+                                    padding: '8px 10px',
+                                    borderRadius: 8,
+                                    border: 'none',
+                                    background: 'transparent',
+                                    fontSize: 13,
+                                    cursor: 'pointer',
+                                    color: 'var(--text)',
+                                  }}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
                       <button
                         onClick={() => {
                           if (window.confirm(`להסיר את "${meal.name}" מהמאגר לצמיתות? הוא לא יוצע יותר בתפריטים עתידיים.`)) {
@@ -280,14 +337,43 @@ export default function MenuDayCard({
                       >
                         <DislikeIcon size={30} />
                       </button>
-                    </>
-                  )}
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {/* Reuses the same popup already built for the schedule page — same look, same
+          ingredient/instruction rendering — so meal details are consistent everywhere in
+          the app rather than a second, different-looking detail view just for this
+          screen. */}
+      {detailSlot && day[detailSlot] && (
+        <ActivityPopup
+          event={
+            {
+              id: `menu-detail-${day.date}-${detailSlot}`,
+              date: day.date,
+              time: SLOT_LABEL[detailSlot],
+              type: 'eat',
+              icon: day[detailSlot]!.icon,
+              title: day[detailSlot]!.name,
+              detail: `${day[detailSlot]!.cal} קק״ל · ${day[detailSlot]!.protein_g}g חלבון`,
+              meal: day[detailSlot]!,
+            } as ScheduleEvent
+          }
+          onClose={() => setDetailSlot(null)}
+        />
+      )}
     </div>
   );
 }
+
+const macroTagStyle: React.CSSProperties = {
+  fontSize: 9.5,
+  fontWeight: 700,
+  color: 'var(--text-3)',
+  background: 'var(--bg2)',
+  padding: '2px 7px',
+  borderRadius: 50,
+};
