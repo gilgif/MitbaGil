@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import Link from 'next/link';
 import BottomNav from '@/components/BottomNav';
+import AppHeader from '@/components/AppHeader';
 import ActivityDetails from '@/components/ActivityDetails';
 import type { ScheduleEvent } from '@/lib/scheduleLogic';
 import { TYPE_LABEL, illustrationForEvent } from '@/lib/scheduleLogic';
@@ -30,10 +30,28 @@ export default function NowPage() {
   const [events, setEvents] = useState<ScheduleEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeIdx, setActiveIdx] = useState(0);
-  const touchStart = useRef<{ x: number; y: number } | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Set while a programmatic scroll (initial position, dot click, arrow click) is in
+  // flight, so the scroll-driven observer below doesn't fight over activeIdx with a
+  // click that's already mid-animation.
+  const programmaticScroll = useRef(false);
 
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
+
+  const scrollToIndex = useCallback((idx: number, smooth: boolean) => {
+    const el = cardRefs.current[idx];
+    if (!el) return;
+    programmaticScroll.current = true;
+    el.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', inline: 'center', block: 'nearest' });
+    // scrollIntoView doesn't have a completion callback — release the guard after a
+    // duration comfortably longer than the smooth-scroll animation itself.
+    window.setTimeout(() => {
+      programmaticScroll.current = false;
+    }, smooth ? 500 : 50);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -51,36 +69,50 @@ export default function NowPage() {
           if (e.date === todayStr && e.time <= nowStr) idx = i;
         });
         setActiveIdx(idx);
+        // Position on the right card immediately, no animation — this is the initial
+        // load, not a user-triggered move.
+        requestAnimationFrame(() => scrollToIndex(idx, false));
       }
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Tracks which card is most visible inside the scroll container as the person swipes
+  // — this is what makes the card's motion feel like genuine scrolling (native momentum,
+  // a visible slide, an eventual snap) rather than an instant swap the instant a touch
+  // gesture crosses some pixel threshold.
+  useEffect(() => {
+    if (!containerRef.current || events.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (programmaticScroll.current) return;
+        const best = entries.reduce<IntersectionObserverEntry | null>((acc, entry) => {
+          if (entry.isIntersecting && (!acc || entry.intersectionRatio > acc.intersectionRatio)) {
+            return entry;
+          }
+          return acc;
+        }, null);
+        if (best) {
+          const idx = Number((best.target as HTMLElement).dataset.idx);
+          if (!Number.isNaN(idx)) setActiveIdx(idx);
+        }
+      },
+      { root: containerRef.current, threshold: [0.6] }
+    );
+    cardRefs.current.forEach((el) => el && observer.observe(el));
+    return () => observer.disconnect();
+  }, [events.length]);
+
   const go = useCallback(
     (delta: number) => {
-      setActiveIdx((cur) => {
-        const next = cur + delta;
-        if (next < 0 || next >= events.length) return cur;
-        return next;
-      });
+      const next = activeIdx + delta;
+      if (next < 0 || next >= events.length) return;
+      setActiveIdx(next);
+      scrollToIndex(next, true);
     },
-    [events.length]
+    [activeIdx, events.length, scrollToIndex]
   );
-
-  function onTouchStart(e: React.TouchEvent) {
-    touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-  }
-  function onTouchEnd(e: React.TouchEvent) {
-    if (!touchStart.current) return;
-    const dx = e.changedTouches[0].clientX - touchStart.current.x;
-    const dy = e.changedTouches[0].clientY - touchStart.current.y;
-    touchStart.current = null;
-    // Ignore mostly-vertical gestures so the card's own content can still be scrolled
-    if (Math.abs(dx) < 40 || Math.abs(dy) > Math.abs(dx) * 0.7) return;
-    // RTL: swiping right goes back to the previous activity
-    go(dx > 0 ? -1 : 1);
-  }
 
   const current = events[activeIdx];
   const currentDate = current ? new Date(current.date) : today;
@@ -88,14 +120,7 @@ export default function NowPage() {
 
   return (
     <div className="app-shell">
-      <div className="top-bar" style={{ position: 'relative' }}>
-        <div className="app-logo">
-          מטב<span>גיל</span>
-        </div>
-        <Link href="/settings" style={settingsBtnStyle}>
-          ⚙️
-        </Link>
-      </div>
+      <AppHeader />
 
       <div
         className="page-content"
@@ -109,64 +134,107 @@ export default function NowPage() {
           </div>
         )}
 
-        {!loading && current && (
+        {!loading && events.length > 0 && (
           <>
-            {/* The card fills nearly the whole screen, matching the original design —
-                this is the single focal point of the page, not one card among several. */}
+            {/* A real horizontally-scrolling, snapping row of cards — one full-width
+                card at a time, but genuinely SLIDING between them via native scroll
+                rather than an instant state swap. This is what makes it visually clear
+                a card is being dismissed and replaced, rather than just flickering. */}
             <div
-              onTouchStart={onTouchStart}
-              onTouchEnd={onTouchEnd}
-              className="card"
+              ref={containerRef}
+              className="scroll-snap-row"
               style={{
+                display: 'flex',
+                overflowX: 'auto',
+                scrollSnapType: 'x mandatory',
                 flex: 1,
                 minHeight: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                padding: 20,
-                overflowY: 'auto',
+                gap: 0,
               }}
             >
-              {/* Large illustration stage in its own tinted rounded box. */}
-              <div
-                style={{
-                  width: '100%',
-                  aspectRatio: '1.35',
-                  borderRadius: 24,
-                  background: TYPE_BG[current.type] || 'var(--bg2)',
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  justifyContent: 'center',
-                  overflow: 'hidden',
-                  marginBottom: 18,
-                }}
-              >
-                <div style={{ width: '62%', height: '78%' }}>
-                  <Illustration kind={illustrationForEvent(current)} />
-                </div>
-              </div>
-
-              {/* Category tag on one side, time on the other — same row. */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span
+              {events.map((event, i) => (
+                <div
+                  key={event.id}
+                  ref={(el) => {
+                    cardRefs.current[i] = el;
+                  }}
+                  data-idx={i}
                   style={{
-                    fontSize: 12,
-                    fontWeight: 700,
-                    padding: '5px 12px',
-                    borderRadius: 50,
-                    background: TYPE_BG[current.type] || 'var(--bg2)',
-                    color: 'var(--text-2)',
+                    flex: '0 0 100%',
+                    scrollSnapAlign: 'center',
+                    scrollSnapStop: 'always',
+                    minWidth: 0,
+                    padding: '0 2px',
                   }}
                 >
-                  {TYPE_LABEL[current.type]}
-                </span>
-                <span style={{ fontSize: 24, fontWeight: 900 }}>{current.time}</span>
-              </div>
+                  <div
+                    className="card"
+                    style={{
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      padding: 20,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {/* Large illustration stage in its own tinted rounded box. Capped
+                        with an absolute max-width (not just a percentage) — the app
+                        shell itself widens on desktop (480px → 860px, see
+                        globals.css), and a box sized at 100% of that would balloon
+                        into something enormous relative to the card's actual text
+                        content. */}
+                    <div
+                      style={{
+                        width: '100%',
+                        maxWidth: 340,
+                        aspectRatio: '1.35',
+                        margin: '0 auto',
+                        borderRadius: 24,
+                        background: TYPE_BG[event.type] || 'var(--bg2)',
+                        display: 'flex',
+                        alignItems: 'flex-end',
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                        marginBottom: 18,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <div style={{ width: '62%', height: '78%' }}>
+                        <Illustration kind={illustrationForEvent(event)} />
+                      </div>
+                    </div>
 
-              <div style={{ fontSize: 21, fontWeight: 900, lineHeight: 1.3, marginBottom: 10 }}>{current.title}</div>
+                    {/* Category tag on one side, time on the other — same row. */}
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          padding: '5px 12px',
+                          borderRadius: 50,
+                          background: TYPE_BG[event.type] || 'var(--bg2)',
+                          color: 'var(--text-2)',
+                        }}
+                      >
+                        {TYPE_LABEL[event.type]}
+                      </span>
+                      <span style={{ fontSize: 24, fontWeight: 900 }}>{event.time}</span>
+                    </div>
 
-              {/* Details are always shown open — no tap needed, matching the original
-                  prototype's design. */}
-              <ActivityDetails event={current} />
+                    <div style={{ fontSize: 21, fontWeight: 900, lineHeight: 1.3, marginBottom: 10 }}>
+                      {event.title}
+                    </div>
+
+                    {/* Details are always shown open — no tap needed, matching the
+                        original prototype's design. Only rendered for the active card
+                        and its immediate neighbours, so a month's worth of cards
+                        doesn't all compute their full detail body at once. */}
+                    {Math.abs(i - activeIdx) <= 1 && <ActivityDetails event={event} />}
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div style={{ fontSize: 12.5, color: 'var(--text-3)', textAlign: 'center', marginTop: 6 }}>
@@ -179,11 +247,14 @@ export default function NowPage() {
             <div style={{ display: 'flex', justifyContent: 'center', gap: 5, marginTop: 8 }}>
               {events
                 .map((e, i) => ({ e, i }))
-                .filter(({ e }) => e.date === current.date)
+                .filter(({ e }) => e.date === current?.date)
                 .map(({ i }) => (
                   <div
                     key={i}
-                    onClick={() => setActiveIdx(i)}
+                    onClick={() => {
+                      setActiveIdx(i);
+                      scrollToIndex(i, true);
+                    }}
                     style={{
                       width: i === activeIdx ? 16 : 6,
                       height: 6,
@@ -203,17 +274,3 @@ export default function NowPage() {
     </div>
   );
 }
-
-const settingsBtnStyle: React.CSSProperties = {
-  position: 'absolute',
-  left: 16,
-  width: 36,
-  height: 36,
-  borderRadius: '50%',
-  background: 'var(--bg2)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  textDecoration: 'none',
-  fontSize: 16,
-};
