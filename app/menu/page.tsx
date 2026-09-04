@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import BottomNav from '@/components/BottomNav';
+import AppHeader from '@/components/AppHeader';
 import MenuDayCard from '@/components/MenuDayCard';
 import MealCard from '@/components/MealCard';
 import type { Meal, UserSettings, ShoppingTrip } from '@/lib/types';
@@ -169,14 +170,7 @@ export default function MenuPage() {
 
   return (
     <div className="app-shell">
-      <div className="top-bar" style={{ position: 'relative' }}>
-        <div className="app-logo">
-          מטב<span>גיל</span>
-        </div>
-        <Link href="/settings" style={settingsBtnStyle}>
-          ⚙️
-        </Link>
-      </div>
+      <AppHeader />
 
       <div className="page-content" style={{ padding: '16px' }}>
         <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 4 }}>תפריט חודשי</div>
@@ -388,16 +382,4 @@ export default function MenuPage() {
   );
 }
 
-const settingsBtnStyle: React.CSSProperties = {
-  position: 'absolute',
-  left: 16,
-  width: 36,
-  height: 36,
-  borderRadius: '50%',
-  background: 'var(--bg2)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  textDecoration: 'none',
-  fontSize: 16,
-};
+
