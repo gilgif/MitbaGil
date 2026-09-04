@@ -66,6 +66,16 @@ button {
   }
 }
 
+/* Horizontal scroll-snap row (used on the "now" page) — hides the scrollbar across
+   browsers, since the dot indicator already shows position. scrollbarWidth as an inline
+   style only covers Firefox; WebKit needs this pseudo-element rule instead. */
+.scroll-snap-row {
+  -ms-overflow-style: none;
+}
+.scroll-snap-row::-webkit-scrollbar {
+  display: none;
+}
+
 .page-content {
   flex: 1;
   overflow-y: auto;
