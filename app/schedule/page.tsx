@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import BottomNav from '@/components/BottomNav';
+import AppHeader from '@/components/AppHeader';
 import ActivityPopup from '@/components/ActivityPopup';
 import type { ScheduleEvent } from '@/lib/scheduleLogic';
 import { TYPE_LABEL, illustrationForEvent } from '@/lib/scheduleLogic';
@@ -86,14 +87,7 @@ export default function SchedulePage() {
 
   return (
     <div className="app-shell">
-      <div className="top-bar" style={{ position: 'relative' }}>
-        <div className="app-logo">
-          מטב<span>גיל</span>
-        </div>
-        <Link href="/settings" style={settingsBtnStyle}>
-          ⚙️
-        </Link>
-      </div>
+      <AppHeader />
 
       <div className="page-content" style={{ padding: '16px' }}>
         {loading && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>טוענת...</div>}
@@ -214,16 +208,4 @@ const arrowStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
-const settingsBtnStyle: React.CSSProperties = {
-  position: 'absolute',
-  left: 16,
-  width: 36,
-  height: 36,
-  borderRadius: '50%',
-  background: 'var(--bg2)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  textDecoration: 'none',
-  fontSize: 16,
-};
+
