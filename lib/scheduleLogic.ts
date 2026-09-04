@@ -324,6 +324,21 @@ export function illustrationForEvent(event: ScheduleEvent): IllustrationKind {
       name: event.meal.name,
     });
   }
+  // Thaw events are built with type: 'prep' (see the event-building loop above), since
+  // there wasn't a distinct activity type worth adding just for this. Their id always
+  // starts with 'thaw-', which is enough to give them their own illustration instead of
+  // reusing the generic meal-prep one now that a dedicated defrost mark exists.
+  if (event.id.startsWith('thaw-')) return 'defrost';
+  // Shopping events encode their trip type in the id (see the trip-building loop
+  // above: `shop-${trip.type}-...`), so the specific trip icon can be inferred without
+  // adding a new field to ScheduleEvent just for this.
+  if (event.type === 'shop') {
+    if (event.id.startsWith('shop-produce') || event.id.startsWith('shop-sprouts')) return 'shop-produce';
+    if (event.id.startsWith('shop-meat')) return 'shop-meat';
+    if (event.id.startsWith('shop-fish')) return 'shop-fish';
+    if (event.id.startsWith('shop-dairy')) return 'shop-dairy';
+    if (event.id.startsWith('shop-pantry')) return 'shop-pantry';
+  }
   const direct: Record<string, IllustrationKind> = {
     eat: 'eat', cook: 'cook', prep: 'prep', shop: 'shop', sport: 'sport', recv: 'recv', baby: 'baby',
   };
