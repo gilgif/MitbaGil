@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { Meal } from '@/lib/types';
 import { componentSummary } from '@/lib/mealLogic';
-import { IllustrationStage, illustrationForMeal, SwapIcon, DislikeIcon } from '@/components/Illustrations';
+import { Illustration, IllustrationStage, illustrationForMeal, CircledIcon, CaloriesIcon, ProteinIcon, PrepTimeIcon, EffortScale } from '@/components/Illustrations';
 import ActivityPopup from '@/components/ActivityPopup';
 import type { ScheduleEvent } from '@/lib/scheduleLogic';
 
@@ -59,17 +59,9 @@ export default function MenuDayCard({
   const [detailSlot, setDetailSlot] = useState<SlotName | null>(null);
   const d = new Date(day.date);
 
-  const isApprovedFor = (s: SlotName): boolean => {
-    if (s === 'breakfast') return day.breakfast_approved;
-    if (s === 'lunch') return day.lunch_approved;
-    if (s === 'dinner') return day.dinner_approved;
-    return day.snack_approved;
-  };
-
   // Only count slots that actually have a recipe — on a rare day with no snack available,
   // the day shouldn't look permanently incomplete.
   const presentSlots = SLOTS.filter((s) => !!day[s]);
-  const approvedCount = presentSlots.filter(isApprovedFor).length;
 
   // Daily totals come from the three MAIN meals only. The afternoon snack is an optional
   // extra — it's deliberately excluded so the numbers shown reflect what the day is actually
@@ -102,6 +94,9 @@ export default function MenuDayCard({
             background: proteinTotal >= dailyProteinTarget ? '#e3f6ea' : '#fde9e9',
             color: proteinTotal >= dailyProteinTarget ? '#16341f' : '#7a1f1f',
             whiteSpace: 'nowrap',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
           }}
           title={
             proteinTotal >= dailyProteinTarget
@@ -109,7 +104,12 @@ export default function MenuDayCard({
               : `מתחת ליעד (${dailyProteinTarget}g) — חסרים ${dailyProteinTarget - proteinTotal}g`
           }
         >
-          🥩 {proteinTotal}g{proteinTotal < dailyProteinTarget ? ' ⚠️' : ''}
+          <ProteinIcon size={13} /> {proteinTotal}g
+          {proteinTotal < dailyProteinTarget && (
+            <span style={{ width: 12, height: 12, display: 'inline-block' }}>
+              <Illustration kind="status-warning" />
+            </span>
+          )}
         </span>
         <span
           style={{
@@ -120,28 +120,13 @@ export default function MenuDayCard({
             background: 'var(--bg2)',
             color: 'var(--text-3)',
             whiteSpace: 'nowrap',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
           }}
           title={`יעד יומי: ${dailyCalTarget} קק״ל (לא כולל נשנוש)`}
         >
-          🔥 {calTotal}
-        </span>
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            padding: '4px 10px',
-            borderRadius: 50,
-            background:
-              approvedCount === presentSlots.length ? '#6ee7a0' : approvedCount > 0 ? 'var(--c-recv-bg)' : 'var(--bg2)',
-            color: approvedCount === presentSlots.length ? '#16341f' : approvedCount > 0 ? '#8a6000' : 'var(--text-3)',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {approvedCount === presentSlots.length
-            ? `✓ ${approvedCount}/${presentSlots.length} מאושר`
-            : approvedCount > 0
-              ? `${approvedCount}/${presentSlots.length} מאושר`
-              : 'טרם אושר'}
+          <CaloriesIcon size={13} /> {calTotal}
         </span>
       </div>
 
@@ -150,7 +135,6 @@ export default function MenuDayCard({
           {SLOTS.map((slot) => {
             const meal = day[slot];
             if (!meal) return null;
-            const approved = isApprovedFor(slot);
             return (
               <div
                 key={slot}
@@ -200,8 +184,12 @@ export default function MenuDayCard({
                           {t}
                         </span>
                       ))}
-                      <span style={macroTagStyle}>🥩 {meal.protein_g}g</span>
-                      <span style={macroTagStyle}>🔥 {meal.cal}</span>
+                      <span style={{ ...macroTagStyle, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <ProteinIcon size={11} /> {meal.protein_g}g
+                      </span>
+                      <span style={{ ...macroTagStyle, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <CaloriesIcon size={11} /> {meal.cal}
+                      </span>
                       <span
                         style={{
                           fontSize: 9.5,
@@ -210,9 +198,12 @@ export default function MenuDayCard({
                           background: 'var(--bg2)',
                           padding: '2px 7px',
                           borderRadius: 50,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 3,
                         }}
                       >
-                        ⏱ {meal.total_prep_min + meal.total_cook_min} דק׳
+                        <PrepTimeIcon size={11} /> {meal.total_prep_min + meal.total_cook_min} דק׳
                       </span>
                       <span
                         style={{
@@ -224,46 +215,25 @@ export default function MenuDayCard({
                             meal.effort === 'קל' ? '#e3f6ea' : meal.effort === 'בינוני' ? 'var(--c-recv-bg)' : '#fde9e9',
                           color:
                             meal.effort === 'קל' ? '#16341f' : meal.effort === 'בינוני' ? '#8a6000' : '#7a1f1f',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
                         }}
                         title="רמת מאמץ: זמן + מספר שלבים + מספר שיטות בישול — הקישי על הארוחה לפרטים"
                       >
-                        {meal.effort === 'קל' ? '🟢' : meal.effort === 'בינוני' ? '🟡' : '🔴'} {meal.effort}
+                        <EffortScale level={meal.effort} width={26} /> {meal.effort}
                       </span>
                     </div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-                  {/* Every meal is "in the plan" by default now (auto-approved on
-                      generation, and a swap immediately confirms the new choice too),
-                      so this is a passive status badge rather than something to click —
-                      there's no longer a separate confirmation step to wait for. */}
-                  <span
-                    style={{
-                      padding: '4px 10px',
-                      fontSize: 11,
-                      background: '#6ee7a0',
-                      color: '#16341f',
-                      borderRadius: 50,
-                      fontWeight: 800,
-                    }}
-                  >
-                    ✓
-                  </span>
                   <div style={{ position: 'relative' }}>
                         <button
                           onClick={() => setSwapMenuSlot(swapMenuSlot === slot ? null : slot)}
                           title="שנה"
-                          style={{
-                            width: 30,
-                            height: 30,
-                            borderRadius: '50%',
-                            border: 'none',
-                            background: 'transparent',
-                            padding: 0,
-                            cursor: 'pointer',
-                          }}
+                          style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer' }}
                         >
-                          <SwapIcon size={30} />
+                          <CircledIcon kind="swap" size={30} />
                         </button>
 
                         {swapMenuSlot === slot && (
@@ -325,17 +295,9 @@ export default function MenuDayCard({
                           }
                         }}
                         title="לא עובד לי — הסירי מהמאגר"
-                        style={{
-                          width: 30,
-                          height: 30,
-                          borderRadius: '50%',
-                          border: 'none',
-                          background: 'transparent',
-                          padding: 0,
-                          cursor: 'pointer',
-                        }}
+                        style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer' }}
                       >
-                        <DislikeIcon size={30} />
+                        <CircledIcon kind="dislike" size={30} />
                       </button>
                 </div>
               </div>
