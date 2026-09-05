@@ -2,6 +2,7 @@
 
 import type { ScheduleEvent } from '@/lib/scheduleLogic';
 import { mealIngredients, componentsWithInstructions } from '@/lib/mealLogic';
+import { CaloriesIcon, ProteinIcon, PrepTimeIcon, EffortScale } from '@/components/Illustrations';
 
 // The body of an activity's details — ingredients, per-component instructions, macros.
 // Extracted so the schedule popup and the "now" page's inline expansion show exactly the
@@ -70,8 +71,10 @@ export default function ActivityDetails({ event }: { event: ScheduleEvent }) {
       )}
 
       {event.burnCal !== undefined && (
-        <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 6 }}>
-          🔥 שריפה משוערת: {event.burnCal} קק״ל
+        <div
+          style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}
+        >
+          <CaloriesIcon size={14} /> שריפה משוערת: {event.burnCal} קק״ל
         </div>
       )}
 
@@ -157,10 +160,18 @@ export default function ActivityDetails({ event }: { event: ScheduleEvent }) {
                   borderTop: '1px solid var(--border-soft)',
                 }}
               >
-                <span style={chipStyle}>🔥 {meal.cal} קק״ל</span>
-                <span style={chipStyle}>🥩 {meal.protein_g}g חלבון</span>
-                <span style={chipStyle}>⏱ {meal.total_prep_min + meal.total_cook_min} דק׳</span>
-                <span style={chipStyle}>💪 {meal.effort}</span>
+                <span style={{ ...chipStyle, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <CaloriesIcon size={13} /> {meal.cal} קק״ל
+                </span>
+                <span style={{ ...chipStyle, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <ProteinIcon size={13} /> {meal.protein_g}g חלבון
+                </span>
+                <span style={{ ...chipStyle, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <PrepTimeIcon size={13} /> {meal.total_prep_min + meal.total_cook_min} דק׳
+                </span>
+                <span style={{ ...chipStyle, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <EffortScale level={meal.effort} width={28} /> {meal.effort}
+                </span>
               </div>
             </>
           );
