@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Illustration } from '@/components/Illustrations';
+import { Illustration, CircledIcon } from '@/components/Illustrations';
 
 // The header used across every page — icon-only, matching the design handoff (option C).
 // The brand mark sits centered; the opposite corner holds either a settings button (on
@@ -16,11 +16,11 @@ export default function AppHeader({ variant = 'settings' }: { variant?: 'setting
 
       {variant === 'settings' ? (
         <Link href="/settings" style={cornerBtnStyle} aria-label="הגדרות">
-          <Illustration kind="settings" />
+          <CircledIcon kind="settings" size={36} />
         </Link>
       ) : (
         <Link href="/menu" style={cornerBtnStyle} aria-label="חזרה">
-          <Illustration kind="close" />
+          <CircledIcon kind="close" size={36} />
         </Link>
       )}
     </div>
@@ -32,13 +32,6 @@ const cornerBtnStyle: React.CSSProperties = {
   left: 16,
   top: '50%',
   transform: 'translateY(-50%)',
-  width: 36,
-  height: 36,
-  padding: 9,
-  borderRadius: '50%',
-  background: 'var(--bg2)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
   textDecoration: 'none',
+  display: 'flex',
 };
