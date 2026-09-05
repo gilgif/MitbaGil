@@ -7,7 +7,7 @@ import AppHeader from '@/components/AppHeader';
 import ActivityPopup from '@/components/ActivityPopup';
 import type { ScheduleEvent } from '@/lib/scheduleLogic';
 import { TYPE_LABEL, illustrationForEvent } from '@/lib/scheduleLogic';
-import { IllustrationStage } from '@/components/Illustrations';
+import { IllustrationStage, ProteinIcon, CaloriesIcon } from '@/components/Illustrations';
 
 const HE_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const HE_MONTHS = [
@@ -109,8 +109,13 @@ export default function SchedulePage() {
                 marginBottom: 14,
               }}
             >
-              <button onClick={() => goDay(1)} disabled={dayIdx >= dates.length - 1} style={arrowStyle}>
-                ‹
+              {/* RTL convention: "forward" (a later day) reads in the same direction as
+                  Hebrew text itself — right to left — so it belongs on the LEFT side of
+                  the header, pointing left. "Back" (an earlier day) sits on the right,
+                  pointing right. This was previously reversed, mirroring English's
+                  left-to-right convention instead of Hebrew's own reading direction. */}
+              <button onClick={() => goDay(-1)} disabled={dayIdx <= 0} style={arrowStyle}>
+                ›
               </button>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: 17, fontWeight: 900 }}>
@@ -120,8 +125,8 @@ export default function SchedulePage() {
                   {isToday ? 'היום' : `${dayIdx + 1} מתוך ${dates.length}`}
                 </div>
               </div>
-              <button onClick={() => goDay(-1)} disabled={dayIdx <= 0} style={arrowStyle}>
-                ›
+              <button onClick={() => goDay(1)} disabled={dayIdx >= dates.length - 1} style={arrowStyle}>
+                ‹
               </button>
             </div>
 
@@ -164,8 +169,12 @@ export default function SchedulePage() {
                       skipped for shopping/sport/etc which don't carry a meal. */}
                   {e.meal && (
                     <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                      <span style={macroChip}>🥩 {e.meal.protein_g}g</span>
-                      <span style={macroChip}>🔥 {e.meal.cal}</span>
+                      <span style={{ ...macroChip, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <ProteinIcon size={11} /> {e.meal.protein_g}g
+                      </span>
+                      <span style={{ ...macroChip, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <CaloriesIcon size={11} /> {e.meal.cal}
+                      </span>
                     </div>
                   )}
                 </div>
