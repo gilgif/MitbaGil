@@ -187,10 +187,22 @@ button {
 .btn-primary:hover {
   background: #000;
 }
+/* The "primary action" tier — reserved for the single most important action on a
+   screen (e.g. "צרי תפריט"), distinct from the black secondary-action tier used for
+   routine confirmations. Reuses the same violet already used for the sport
+   illustration, so the accent colour stays consistent across the app rather than
+   introducing a second unrelated purple. */
+.btn-accent {
+  background: #8B6FE0;
+  color: #fff;
+}
+.btn-accent:hover {
+  background: #7a5cd6;
+}
 .btn-ghost {
   background: transparent;
   color: var(--text-2);
-  border: 1.5px solid var(--border);
+  border: 1.6px solid var(--ink);
   font-weight: 700;
 }
 .btn-sm {
