@@ -24,7 +24,8 @@ export type IllustrationKind =
   | 'done' | 'swap' | 'dislike' | 'settings' | 'close'
   | 'shop-produce' | 'shop-meat' | 'shop-fish' | 'shop-dairy' | 'shop-pantry'
   | 'status-favorite' | 'status-forbidden' | 'status-warning'
-  | 'brand';
+  | 'brand'
+  | 'icon-calories' | 'icon-protein' | 'icon-prep-time' | 'dot-effort-light' | 'dot-effort-medium' | 'dot-effort-complex' | 'dot-effort-empty' | 'effort-scale-light' | 'effort-scale-medium' | 'effort-scale-complex';
 
 
 export function Illustration({ kind }: { kind: IllustrationKind }) {
@@ -394,6 +395,78 @@ export function Illustration({ kind }: { kind: IllustrationKind }) {
           <rect width="120" height="120" rx="34" fill="#E8419C"></rect><g transform="translate(11,14) scale(0.83)"><path d="M44 20 C38 13 45 3 52 9" stroke="#ffffff" strokeWidth="3.4" fill="none" strokeLinecap="round" opacity=".7"></path><path d="M70 18 C64 11 71 1 78 7" stroke="#ffffff" strokeWidth="3.4" fill="none" strokeLinecap="round" opacity=".7"></path><path d="M22 32 C22 27 26 24 31 24 H89 C94 24 98 28 97 33 L95 42 H24 Z" fill="#ffffff"></path><path d="M26 46 C26 43 28 41 31 41 H89 C92 41 94 43 94 46 L89 100 C88 110 80 116 70 116 H50 C40 116 32 110 31 100 Z" fill="#FFD6EA"></path><circle cx="48" cy="70" r="5" fill="#171717"></circle><circle cx="72" cy="70" r="5" fill="#171717"></circle><path d="M48 86 Q60 97 72 86" stroke="#171717" strokeWidth="4.4" fill="none" strokeLinecap="round"></path></g>
         </svg>
       );
+    case 'icon-calories':
+      return (
+        <svg viewBox="0 0 48 48" style={S} xmlns="http://www.w3.org/2000/svg">
+          <path d="M24 4 C29 12 36 16 36 25 C36 33.3 30.6 40 24 40 C17.4 40 12 33.3 12 25 C12 19 16 16.5 18.5 12 C19.6 16 21 18.5 22.6 20 C22.2 14.8 22.8 9.4 24 4 Z" fill="#F5A623"></path>
+            <path d="M24.6 21 C27.6 25.2 29.8 27.6 29.8 30.8 C29.8 34.9 27.2 37.6 24 37.6 C20.7 37.6 18.2 34.9 18.2 31 C18.2 27.4 21.7 25.6 24.6 21 Z" fill="#F0C33E"></path>
+        </svg>
+      );
+    case 'icon-protein':
+      return (
+        <svg viewBox="0 0 48 48" style={S} xmlns="http://www.w3.org/2000/svg">
+          <path d="M15 11 C23.5 7.5 35 9 39 16.5 C43 24 38.5 35 29 38 C19.5 41 9.5 35.5 8 27 C6.7 19.8 9.5 14 15 11 Z" fill="#D9534F"></path>
+            <path d="M19 16.5 C25 13.8 32 15 34.2 19.8 C36.4 24.8 33 31.4 27 33.2 C21.2 34.9 15.5 31.6 14.7 26.6 C14 22.2 15.8 18.2 19 16.5 Z" fill="#F2A671"></path>
+            <path d="M22.5 22 C25.6 20.8 29 21.8 29.8 24.6" stroke="#FFFCF2" strokeWidth="3" fill="none" strokeLinecap="round"></path>
+        </svg>
+      );
+    case 'icon-prep-time':
+      return (
+        <svg viewBox="0 0 48 48" style={S} xmlns="http://www.w3.org/2000/svg">
+          <circle cx="24" cy="26" r="15" fill="none" stroke="#171717" strokeWidth="4.2"></circle>
+            <path d="M18.5 8.5 H29.5" stroke="#171717" strokeWidth="4.2" strokeLinecap="round"></path>
+            <path d="M24 11.5 V14.5" stroke="#171717" strokeWidth="4.2" strokeLinecap="round"></path>
+            <path d="M24 18.5 V26 H30" stroke="#171717" strokeWidth="4.2" fill="none" strokeLinecap="round" strokeLinejoin="round"></path>
+        </svg>
+      );
+    case 'dot-effort-light':
+      return (
+        <svg viewBox="0 0 48 48" style={S} xmlns="http://www.w3.org/2000/svg">
+          <circle cx="24" cy="24" r="16" fill="#4CAF7D"></circle>
+        </svg>
+      );
+    case 'dot-effort-medium':
+      return (
+        <svg viewBox="0 0 48 48" style={S} xmlns="http://www.w3.org/2000/svg">
+          <circle cx="24" cy="24" r="16" fill="#F0C33E"></circle>
+        </svg>
+      );
+    case 'dot-effort-complex':
+      return (
+        <svg viewBox="0 0 48 48" style={S} xmlns="http://www.w3.org/2000/svg">
+          <circle cx="24" cy="24" r="16" fill="#D9534F"></circle>
+        </svg>
+      );
+    case 'dot-effort-empty':
+      return (
+        <svg viewBox="0 0 48 48" style={S} xmlns="http://www.w3.org/2000/svg">
+          <circle cx="24" cy="24" r="16" fill="#C9C6BE"></circle>
+        </svg>
+      );
+    case 'effort-scale-light':
+      return (
+        <svg viewBox="0 0 96 32" style={S} xmlns="http://www.w3.org/2000/svg">
+          <circle cx="16" cy="16" r="10" fill="#4CAF7D"></circle>
+            <circle cx="48" cy="16" r="10" fill="#C9C6BE"></circle>
+            <circle cx="80" cy="16" r="10" fill="#C9C6BE"></circle>
+        </svg>
+      );
+    case 'effort-scale-medium':
+      return (
+        <svg viewBox="0 0 96 32" style={S} xmlns="http://www.w3.org/2000/svg">
+          <circle cx="16" cy="16" r="10" fill="#F0C33E"></circle>
+            <circle cx="48" cy="16" r="10" fill="#F0C33E"></circle>
+            <circle cx="80" cy="16" r="10" fill="#C9C6BE"></circle>
+        </svg>
+      );
+    case 'effort-scale-complex':
+      return (
+        <svg viewBox="0 0 96 32" style={S} xmlns="http://www.w3.org/2000/svg">
+          <circle cx="16" cy="16" r="10" fill="#D9534F"></circle>
+            <circle cx="48" cy="16" r="10" fill="#D9534F"></circle>
+            <circle cx="80" cy="16" r="10" fill="#D9534F"></circle>
+        </svg>
+      );
     default:
       return <Illustration kind="eat" />;
   }
@@ -498,6 +571,98 @@ export function CloseIcon({ size = 22 }: { size?: number }) {
   return (
     <div style={{ width: size, height: size }}>
       <Illustration kind="close" />
+    </div>
+  );
+}
+
+export function FavoriteIcon({ size = 22 }: { size?: number }) {
+  return (
+    <div style={{ width: size, height: size }}>
+      <Illustration kind="status-favorite" />
+    </div>
+  );
+}
+
+export function ForbiddenIcon({ size = 22 }: { size?: number }) {
+  return (
+    <div style={{ width: size, height: size }}>
+      <Illustration kind="status-forbidden" />
+    </div>
+  );
+}
+
+// The circle-outline treatment used for the small "utility" action icons — settings,
+// close, swap, dislike — per the design reference: a thin black ring, transparent
+// inside, the glyph centered and sized to leave a clear margin from the ring. Distinct
+// from IllustrationStage (which fills a solid tinted circle) — this one is specifically
+// an outline, no fill.
+export function CircledIcon({
+  kind,
+  size = 36,
+}: {
+  kind: IllustrationKind;
+  size?: number;
+}) {
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        border: '1.6px solid var(--ink)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+        boxSizing: 'border-box',
+      }}
+    >
+      <div style={{ width: size * 0.52, height: size * 0.52 }}>
+        <Illustration kind={kind} />
+      </div>
+    </div>
+  );
+}
+
+// ── Metric icons — calories, protein, prep time, effort dots ──
+// A separate delivery from the main character/button pack (same palette, matched
+// afterward), so these get their own small helpers rather than being folded into
+// CircledIcon, which is specifically for the outlined-circle utility buttons.
+
+export function CaloriesIcon({ size = 16 }: { size?: number }) {
+  return (
+    <div style={{ width: size, height: size, flexShrink: 0 }}>
+      <Illustration kind="icon-calories" />
+    </div>
+  );
+}
+
+export function ProteinIcon({ size = 16 }: { size?: number }) {
+  return (
+    <div style={{ width: size, height: size, flexShrink: 0 }}>
+      <Illustration kind="icon-protein" />
+    </div>
+  );
+}
+
+export function PrepTimeIcon({ size = 16 }: { size?: number }) {
+  return (
+    <div style={{ width: size, height: size, flexShrink: 0 }}>
+      <Illustration kind="icon-prep-time" />
+    </div>
+  );
+}
+
+// The 3-dot effort scale, e.g. ● ● ○ for "medium". Renders the pre-composed
+// effort-scale-* asset for the given level, so all three dots — including which are
+// filled vs empty — come from a single matched SVG rather than being assembled from
+// separate dots here (avoids any risk of the assembled spacing drifting from the
+// original design).
+export function EffortScale({ level, width = 48 }: { level: 'קל' | 'בינוני' | 'מורכב'; width?: number }) {
+  const kind = level === 'קל' ? 'effort-scale-light' : level === 'בינוני' ? 'effort-scale-medium' : 'effort-scale-complex';
+  return (
+    <div style={{ width, height: width / 3, flexShrink: 0 }}>
+      <Illustration kind={kind} />
     </div>
   );
 }
