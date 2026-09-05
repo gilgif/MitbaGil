@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { Meal } from '@/lib/types';
 import { mealIngredients, componentsWithInstructions, componentSummary } from '@/lib/mealLogic';
-import { IllustrationStage, illustrationForMeal } from '@/components/Illustrations';
+import { IllustrationStage, illustrationForMeal, FavoriteIcon, ForbiddenIcon, ApproveIcon, DislikeIcon, PrepTimeIcon, ProteinIcon, EffortScale } from '@/components/Illustrations';
 
 function formatIngredientLine(ing: { name: string; qty: number; unit: string }): string {
   const countableUnits = ["יח'", 'יח׳', 'שיני', 'שן', 'כפות', 'כפית', 'כף', 'פרוסות', 'חופן', 'גביע', 'ראש', 'כוס', 'מנה'];
@@ -73,9 +73,12 @@ export default function MealCard({
                   background: 'var(--c-recv-bg)',
                   padding: '2px 8px',
                   borderRadius: 50,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 3,
                 }}
               >
-                ⭐ של גיל
+                <FavoriteIcon size={11} /> של גיל
               </span>
             )}
             <span
@@ -86,12 +89,19 @@ export default function MealCard({
                 background: effortColor.bg,
                 padding: '2px 8px',
                 borderRadius: 50,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 3,
               }}
             >
-              {meal.effort === 'קל' ? '🟢' : meal.effort === 'בינוני' ? '🟡' : '🔴'} {meal.effort}
+              <EffortScale level={meal.effort} width={24} /> {meal.effort}
             </span>
-            <span style={chipStyle}>⏱ {meal.total_prep_min + meal.total_cook_min} דק׳</span>
-            <span style={chipStyle}>🥩 {meal.protein_g}g</span>
+            <span style={{ ...chipStyle, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <PrepTimeIcon size={11} /> {meal.total_prep_min + meal.total_cook_min} דק׳
+            </span>
+            <span style={{ ...chipStyle, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <ProteinIcon size={11} /> {meal.protein_g}g
+            </span>
             {meal.batch_friendly && (meal.repeat_days || 1) > 1 && (
               <span style={chipStyle} title="מתאימה לבישול מרוכז">
                 🍱 מחזיקה {meal.repeat_days} ימים
@@ -164,13 +174,13 @@ export default function MealCard({
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
               <button
                 className="btn btn-primary btn-sm"
-                style={{ flex: 1 }}
+                style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onApprove?.();
                 }}
               >
-                ✓ הוסיפי למאגר שלי
+                <ApproveIcon size={14} /> הוסיפי למאגר שלי
               </button>
               <button
                 className="btn btn-ghost btn-sm"
@@ -201,7 +211,9 @@ export default function MealCard({
                   cursor: 'pointer',
                 }}
               >
-                👍 אוהבת
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <FavoriteIcon size={14} /> אוהבת
+                </span>
               </button>
               <button
                 onClick={(e) => {
@@ -220,13 +232,15 @@ export default function MealCard({
                   cursor: 'pointer',
                 }}
               >
-                👎 לא עובד לי
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <DislikeIcon size={14} /> לא עובד לי
+                </span>
               </button>
             </div>
           )}
           {meal.disliked && (
-            <div style={{ fontSize: 11.5, color: '#7a1f1f', marginTop: 6 }}>
-              🚫 ארוחה זו לא תוצע יותר בתפריטים עתידיים
+            <div style={{ fontSize: 11.5, color: '#7a1f1f', marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <ForbiddenIcon size={13} /> ארוחה זו לא תוצע יותר בתפריטים עתידיים
             </div>
           )}
         </div>
