@@ -6,17 +6,13 @@ import BottomNav from '@/components/BottomNav';
 import AppHeader from '@/components/AppHeader';
 import MenuDayCard from '@/components/MenuDayCard';
 import MealCard from '@/components/MealCard';
+import { SwapIcon, ApproveIcon, FavoriteIcon } from '@/components/Illustrations';
 import type { Meal, UserSettings, ShoppingTrip } from '@/lib/types';
 
 const HE_MONTHS = [
   'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
   'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר',
 ];
-
-function seasonForDate(date: Date): 'summer' | 'winter' {
-  const winterMonths = [9, 10, 11, 0, 1, 2];
-  return winterMonths.includes(date.getMonth()) ? 'winter' : 'summer';
-}
 
 export default function MenuPage() {
   const today = new Date();
@@ -39,8 +35,6 @@ export default function MenuPage() {
   const targetDate = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
   const year = targetDate.getFullYear();
   const month = targetDate.getMonth();
-  const season = seasonForDate(targetDate);
-
   const loadMenu = useCallback(async () => {
     const res = await fetch(`/api/menu?year=${year}&month=${month}`);
     if (res.ok) {
@@ -193,26 +187,11 @@ export default function MenuPage() {
           </button>
         </div>
 
-        <div
-          style={{
-            display: 'inline-flex',
-            padding: '6px 14px',
-            borderRadius: 50,
-            fontSize: 12.5,
-            fontWeight: 700,
-            marginBottom: 16,
-            background: season === 'winter' ? 'var(--c-shop-bg)' : 'var(--c-recv-bg)',
-            color: season === 'winter' ? '#3a5a8a' : '#8a6000',
-          }}
-        >
-          {season === 'winter' ? '❄️ תפריט חורפי — מרקים ומנות חמות' : '☀️ תפריט קיצי — טרי, קר וקליל'}
-        </div>
-
         {loading && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>טוענת...</div>}
 
         {!loading && (!days || days.length === 0) && (
           <button
-            className="btn btn-primary"
+            className="btn btn-accent"
             style={{ width: '100%', padding: 16, fontSize: 15 }}
             onClick={handleGenerate}
             disabled={generating}
@@ -223,8 +202,12 @@ export default function MenuPage() {
 
         {!loading && days && days.length > 0 && (
           <>
-            <button className="btn btn-ghost btn-sm" onClick={handleRegenerate} style={{ marginBottom: 12 }}>
-              🔄 הציעי תפריט מחדש
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={handleRegenerate}
+              style={{ marginBottom: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <SwapIcon size={16} /> הציעי תפריט מחדש
             </button>
 
             {days.map((day) => (
@@ -248,9 +231,16 @@ export default function MenuPage() {
               <button
                 className="btn btn-primary"
                 onClick={() => setMonthReviewed(true)}
-                style={{ width: '100%', marginTop: 8 }}
+                style={{
+                  width: '100%',
+                  marginTop: 8,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
               >
-                ✓ סיימתי — בנה קניות ולו״ז
+                <ApproveIcon size={18} /> סיימתי — בנה קניות ולו״ז
               </button>
             ) : (
               <div
@@ -318,7 +308,9 @@ export default function MenuPage() {
             className={`toggle-opt ${recipeFilter === 'approved' ? 'active' : ''}`}
             onClick={() => setRecipeFilter('approved')}
           >
-            שלי ⭐
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              שלי <FavoriteIcon size={14} />
+            </span>
           </button>
           <button
             className={`toggle-opt ${recipeFilter === 'pending' ? 'active' : ''}`}
