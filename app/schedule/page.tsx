@@ -6,7 +6,7 @@ import BottomNav from '@/components/BottomNav';
 import AppHeader from '@/components/AppHeader';
 import ActivityPopup from '@/components/ActivityPopup';
 import type { ScheduleEvent } from '@/lib/scheduleLogic';
-import { TYPE_LABEL, illustrationForEvent } from '@/lib/scheduleLogic';
+import { TYPE_LABEL, illustrationForEvent, labelForEvent } from '@/lib/scheduleLogic';
 import { IllustrationStage, ProteinIcon, CaloriesIcon } from '@/components/Illustrations';
 
 const HE_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -151,7 +151,7 @@ export default function SchedulePage() {
                   <IllustrationStage kind={illustrationForEvent(e)} size={40} bg={TYPE_BG[e.type]} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)' }}>
-                      {TYPE_LABEL[e.type]}
+                      {labelForEvent(e)}
                     </div>
                     <div
                       style={{
