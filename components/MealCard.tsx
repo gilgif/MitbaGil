@@ -97,7 +97,7 @@ export default function MealCard({
               <EffortScale level={meal.effort} width={24} /> {meal.effort}
             </span>
             <span style={{ ...chipStyle, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-              <PrepTimeIcon size={11} /> {meal.total_prep_min + meal.total_cook_min} דק׳
+              <PrepTimeIcon size={11} /> {(meal.total_prep_min || 0) + (meal.total_cook_min || 0)} דק׳
             </span>
             <span style={{ ...chipStyle, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
               <ProteinIcon size={11} /> {meal.protein_g}g
