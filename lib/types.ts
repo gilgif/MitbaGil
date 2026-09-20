@@ -12,7 +12,11 @@ export type Freshness =
   | 'fresh-sprouts'
   | 'freezer-meat'
   | 'weekly-dairy'
-  | 'pantry';
+  | 'pantry'
+  // Already-prepared items drawn from the person's own stock (yesterday's leftovers, a
+  // batch cooked and frozen earlier) — not something to shop for at all. Deliberately
+  // unhandled by buildShoppingPlan's category checks, so it never lands on any trip.
+  | 'own-stock';
 
 export interface Ingredient {
   id: string;
@@ -196,6 +200,14 @@ export interface ShoppingTripItem {
   name: string;
   qty: number;
   unit: string;
+  // A finer grouping than the trip type itself — e.g. within a produce trip,
+  // distinguishing vegetables from fruit from leafy greens/herbs; within pantry,
+  // distinguishing spices from nuts from oils from legumes. Purely for display
+  // grouping — doesn't affect which trip an item belongs to.
+  subcategory?: string;
+  // A short parenthetical hint shown after the quantity, e.g. "(2 חבילות)" for eggs —
+  // only added where a package-size assumption is safe to make explicit.
+  note?: string;
 }
 
 export interface ShoppingTrip {
