@@ -187,6 +187,44 @@ export default function MenuPage() {
           </button>
         </div>
 
+        {/* A nudge to review next month, shown only in the last few days of the current
+            month and only on days that aren't already busy with the office routine —
+            those are exactly the days there's actual headspace to sit with a whole
+            month's menu. It's just a suggestion to switch tabs, not a data-driven check
+            of whether next month is "done" (that would need an extra fetch just for a
+            banner) — dismissing or ignoring it doesn't affect anything. */}
+        {monthOffset === 0 && settings && (() => {
+          const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+          const daysLeftInMonth = daysInMonth - today.getDate();
+          const isOfficeDay = (settings.office_days || []).includes(today.getDay());
+          if (daysLeftInMonth > 5 || isOfficeDay) return null;
+          return (
+            <div
+              className="card"
+              style={{
+                padding: '12px 14px',
+                marginBottom: 12,
+                background: 'var(--c-recv-bg)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+              }}
+            >
+              <span style={{ fontSize: 12.5, color: '#8a6000', fontWeight: 700 }}>
+                נשארו {daysLeftInMonth} ימים לחודש — יש לך זמן היום, שווה לעבור על החודש הבא
+              </span>
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ flexShrink: 0 }}
+                onClick={() => { setMonthOffset(1); setMonthReviewed(false); }}
+              >
+                לחודש הבא
+              </button>
+            </div>
+          );
+        })()}
+
         {loading && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>טוענת...</div>}
 
         {!loading && (!days || days.length === 0) && (
@@ -273,21 +311,58 @@ export default function MenuPage() {
                   <strong>{shoppingPlan.trips.length}</strong> נסיעות קניה מרוכזות ל-
                   <strong>{shoppingPlan.totalMeals}</strong> ארוחות מאושרות
                 </div>
-                {shoppingPlan.trips.map((trip, i) => (
-                  <div key={i} className="card" style={{ padding: '14px 16px', marginBottom: 8 }}>
-                    <div style={{ fontSize: 13, fontWeight: 800 }}>{trip.label}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 8 }}>
-                      {new Date(trip.date).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
-                    </div>
-                    <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                      {trip.items.map((item, j) => (
-                        <li key={j} style={{ fontSize: 12.5, color: 'var(--text-2)' }}>
-                          • {item.name} — {Math.round(item.qty * 10) / 10} {item.unit}
-                        </li>
+                {shoppingPlan.trips.map((trip, i) => {
+                  // Group this trip's items by subcategory (vegetables/fruit/greens,
+                  // or spices/nuts/oils/legumes) so the list reads as organized
+                  // sections rather than one flat, unsorted list. Items without a
+                  // subcategory (fish, dairy, meat — trips that aren't produce or
+                  // pantry) just render as a single unlabeled group, same as before.
+                  const groups = new Map<string, typeof trip.items>();
+                  trip.items.forEach((item) => {
+                    const key = item.subcategory || '';
+                    if (!groups.has(key)) groups.set(key, []);
+                    groups.get(key)!.push(item);
+                  });
+
+                  const CATEGORY_ORDER = ['ירקות', 'פירות', 'עלים ירוקים ונבטים', 'תבלינים', 'גרעינים ואגוזים', 'שמנים', 'קטניות ודגנים', 'אחר', ''];
+                  const sortedGroups = Array.from(groups.entries()).sort(
+                    ([a], [b]) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b)
+                  );
+
+                  return (
+                    <div key={i} className="card" style={{ padding: '14px 16px', marginBottom: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800 }}>{trip.label}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 8 }}>
+                        {new Date(trip.date).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}
+                      </div>
+                      {sortedGroups.map(([subcat, items]) => (
+                        <div key={subcat} style={{ marginBottom: 8 }}>
+                          {subcat && (
+                            <div
+                              style={{
+                                fontSize: 10.5,
+                                fontWeight: 800,
+                                color: 'var(--text-3)',
+                                textTransform: 'uppercase',
+                                marginBottom: 3,
+                              }}
+                            >
+                              {subcat}
+                            </div>
+                          )}
+                          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                            {items.map((item, j) => (
+                              <li key={j} style={{ fontSize: 12.5, color: 'var(--text-2)' }}>
+                                • {item.name} — {Math.round(item.qty * 10) / 10} {item.unit}
+                                {item.note ? ` ${item.note}` : ''}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       ))}
-                    </ul>
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </>
