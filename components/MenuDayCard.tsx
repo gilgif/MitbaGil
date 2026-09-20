@@ -203,7 +203,7 @@ export default function MenuDayCard({
                           gap: 3,
                         }}
                       >
-                        <PrepTimeIcon size={11} /> {meal.total_prep_min + meal.total_cook_min} דק׳
+                        <PrepTimeIcon size={11} /> {(meal.total_prep_min || 0) + (meal.total_cook_min || 0)} דק׳
                       </span>
                       <span
                         style={{
