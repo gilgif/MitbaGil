@@ -20,7 +20,7 @@ export type ActivityType = 'shop' | 'recv' | 'prep' | 'cook' | 'eat' | 'sport' |
 export const TYPE_LABEL: Record<ActivityType, string> = {
   shop: 'קניות',
   recv: 'קבלת משלוח',
-  prep: 'Meal Prep',
+  prep: 'הכנה מראש',
   cook: 'בישול',
   eat: 'ארוחה',
   sport: 'ספורט',
@@ -61,8 +61,6 @@ const MEAL_TIMES: Record<'breakfast' | 'lunch' | 'dinner', string> = {
 };
 
 // Cooking happens shortly before the meal it belongs to; prep earlier still.
-const COOK_LEAD_MINUTES = 45;
-const PREP_LEAD_MINUTES = 90;
 
 const SNACK_TIME = '15:00'; // the 14:00-16:00 afternoon craving window
 const SHOP_TIME_DEFAULT = '09:00'; // meat / fish / dairy / pantry runs
@@ -83,13 +81,25 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-// A meal needs a real cooking step if any component takes cook time; it needs prep if
-// total prep is meaningful (chopping etc.) beyond a token minute or two.
+// A meal needs a real cooking step if any component takes cook time — this now also
+// covers "cooking" a no-heat dish like a salad, since chopping and assembling IS the
+// entire activity for that dish, not a separate "prep" step before some other thing.
 function needsCookStep(m: Meal): boolean {
-  return (m.total_cook_min || 0) > 0;
+  return (m.total_cook_min || 0) + (m.total_prep_min || 0) > 0;
 }
-function needsPrepStep(m: Meal): boolean {
-  return (m.total_prep_min || 0) >= 10;
+
+// Real advance preparation — genuinely separated in time from cooking — turns out to
+// mean one specific, checkable thing in this data: an ingredient tagged pre_marinate,
+// meaning it benefits from being seasoned or marinated well before it's actually cooked.
+// This is checked against the recipe-backed ingredients directly rather than via
+// mealIngredients(), which merges duplicate ingredients across components and drops
+// this flag in the process. Returns the ingredient name to marinate, or null.
+function advanceMarinateIngredient(m: Meal): string | null {
+  for (const c of m.components || []) {
+    const hit = c.recipe?.ingredients?.find((ing) => ing.pre_marinate);
+    if (hit) return hit.name;
+  }
+  return null;
 }
 
 // Vegetable orders are placed the day before delivery, at the times the user specified.
@@ -163,27 +173,51 @@ export function buildSchedule({ days, approvals, settings, monthAnchor }: BuildS
       // only on the day it's actually cooked, never on a reuse day.
       if (!isApproved || isBatchReuse) return;
 
+      // Every dish that needs any hands-on activity at all — chopping a salad, or
+      // breading and frying a schnitzel — gets ONE "cooking" event covering the whole
+      // thing, timed from its real total duration. This replaced a three-way split
+      // (prep-only / cook-only / both) that used fixed, made-up lead times (90 minutes
+      // for prep, 45 for cook) unrelated to how long anything actually takes, and that
+      // showed the exact same full step list on both events for dishes needing both —
+      // there's no data distinguishing which steps are "prep" vs "cook" within a
+      // recipe, so splitting them read as a confusing duplicate rather than two
+      // different things to do. "Making a salad" is cooking too, in this sense — it's
+      // the entire activity that produces the dish, whether or not heat is involved.
       if (needsCookStep(meal)) {
+        const totalMinutes = meal.total_prep_min + meal.total_cook_min;
         events.push({
           id: `cook-${day.date}-${slot}`,
           date: day.date,
-          time: shiftTime(mealTime, -COOK_LEAD_MINUTES),
+          time: shiftTime(mealTime, -totalMinutes),
           type: 'cook',
           icon: TYPE_ICON.cook,
           title: `בישול: ${meal.name}`,
-          detail: `${meal.total_cook_min} דק׳ בישול`,
+          detail:
+            meal.total_prep_min > 0 && meal.total_cook_min > 0
+              ? `${meal.total_prep_min} דק׳ הכנה + ${meal.total_cook_min} דק׳ בישול`
+              : `${totalMinutes} דק׳`,
           meal,
         });
       }
-      if (needsPrepStep(meal)) {
+
+      // Genuine advance preparation — separated in time from cooking by design, not
+      // just an artifact of a fixed lead-time guess — turns out to mean one specific
+      // thing: an ingredient tagged pre_marinate, meaning it benefits from being
+      // seasoned or marinated well before it's actually cooked. This is the only case
+      // "Meal Prep" still refers to something genuinely advance; everything else is
+      // folded into the single cooking event above.
+      const marinateIngredient = advanceMarinateIngredient(meal);
+      if (marinateIngredient) {
+        const marinateDate = new Date(day.date);
+        marinateDate.setDate(marinateDate.getDate() - 1);
         events.push({
           id: `prep-${day.date}-${slot}`,
-          date: day.date,
-          time: shiftTime(mealTime, -PREP_LEAD_MINUTES),
+          date: isoDate(marinateDate),
+          time: THAW_TIME,
           type: 'prep',
           icon: TYPE_ICON.prep,
-          title: `הכנה: ${meal.name}`,
-          detail: `${meal.total_prep_min} דק׳ הכנה`,
+          title: `תיבול/השריה מראש: ${marinateIngredient}`,
+          detail: `לבישול מחר, ${meal.name}`,
           meal,
         });
       }
@@ -343,6 +377,16 @@ export function illustrationForEvent(event: ScheduleEvent): IllustrationKind {
     eat: 'eat', cook: 'cook', prep: 'prep', shop: 'shop', sport: 'sport', recv: 'recv', baby: 'baby',
   };
   return direct[event.type] || 'eat';
+}
+
+// The text label shown next to an event's time — mirrors illustrationForEvent's special
+// cases (same id-prefix checks), since a thaw event showing "Meal Prep" as its category
+// was exactly as confusing as it showing the wrong icon: taking something out of the
+// freezer isn't meal prep in any real sense, and reads as a stray/duplicate step next to
+// an actual prep or cook event for the same dish.
+export function labelForEvent(event: ScheduleEvent): string {
+  if (event.id.startsWith('thaw-')) return 'הפשרה';
+  return TYPE_LABEL[event.type];
 }
 
 // Convenience: all events for one specific date, already in chronological order.
