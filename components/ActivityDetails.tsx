@@ -167,7 +167,7 @@ export default function ActivityDetails({ event }: { event: ScheduleEvent }) {
                   <ProteinIcon size={13} /> {meal.protein_g}g חלבון
                 </span>
                 <span style={{ ...chipStyle, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <PrepTimeIcon size={13} /> {meal.total_prep_min + meal.total_cook_min} דק׳
+                  <PrepTimeIcon size={13} /> {(meal.total_prep_min || 0) + (meal.total_cook_min || 0)} דק׳
                 </span>
                 <span style={{ ...chipStyle, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <EffortScale level={meal.effort} width={28} /> {meal.effort}
