@@ -5,7 +5,7 @@ import BottomNav from '@/components/BottomNav';
 import AppHeader from '@/components/AppHeader';
 import ActivityDetails from '@/components/ActivityDetails';
 import type { ScheduleEvent } from '@/lib/scheduleLogic';
-import { TYPE_LABEL, illustrationForEvent } from '@/lib/scheduleLogic';
+import { TYPE_LABEL, illustrationForEvent, labelForEvent } from '@/lib/scheduleLogic';
 import { Illustration } from '@/components/Illustrations';
 
 const HE_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -53,6 +53,10 @@ export default function NowPage() {
     }, smooth ? 500 : 50);
   }, []);
 
+  // Guards the initial scroll-into-place so it only ever fires once, not every time
+  // activeIdx changes for other reasons (user scrolling, dot clicks).
+  const hasPositionedInitially = useRef(false);
+
   useEffect(() => {
     (async () => {
       const res = await fetch(`/api/schedule?year=${today.getFullYear()}&month=${today.getMonth()}`);
@@ -69,14 +73,27 @@ export default function NowPage() {
           if (e.date === todayStr && e.time <= nowStr) idx = i;
         });
         setActiveIdx(idx);
-        // Position on the right card immediately, no animation — this is the initial
-        // load, not a user-triggered move.
-        requestAnimationFrame(() => scrollToIndex(idx, false));
       }
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Performs the actual initial scroll, once — deliberately a SEPARATE effect from the
+  // data fetch above, rather than a bare requestAnimationFrame call right after
+  // setActiveIdx. A single requestAnimationFrame isn't guaranteed to fire after React has
+  // committed the new cards to the DOM, so cardRefs.current[idx] could still be null when
+  // it runs — scrollToIndex silently no-ops on a null ref, leaving the browser at its
+  // default scroll position (the very start of the list) instead of today's card. This
+  // is exactly the "jumps to the start of the month" bug. A useEffect keyed on `events`
+  // is guaranteed to run after the render that creates the card elements and assigns
+  // their refs, so the target card is always there by the time this runs.
+  useEffect(() => {
+    if (events.length > 0 && !hasPositionedInitially.current) {
+      hasPositionedInitially.current = true;
+      scrollToIndex(activeIdx, false);
+    }
+  }, [events, activeIdx, scrollToIndex]);
 
   // Tracks which card is most visible inside the scroll container as the person swipes
   // — this is what makes the card's motion feel like genuine scrolling (native momentum,
@@ -115,8 +132,6 @@ export default function NowPage() {
   );
 
   const current = events[activeIdx];
-  const currentDate = current ? new Date(current.date) : today;
-  const isToday = current?.date === todayStr;
 
   return (
     <div className="app-shell">
@@ -183,6 +198,15 @@ export default function NowPage() {
                         globals.css), and a box sized at 100% of that would balloon
                         into something enormous relative to the card's actual text
                         content. */}
+                    {/* Small date line at the top of the card, per-event (not a single
+                        summary below the whole scroll row) — so the date is always
+                        visible for whichever card is actually showing, even mid-swipe. */}
+                    <div style={{ fontSize: 11.5, color: 'var(--text-3)', textAlign: 'center', marginBottom: 10 }}>
+                      {HE_DAYS[new Date(event.date).getDay()]}
+                      {event.date === todayStr ? ' · היום' : ''}, {new Date(event.date).getDate()} ב
+                      {HE_MONTHS[new Date(event.date).getMonth()]}
+                    </div>
+
                     <div
                       style={{
                         width: '100%',
@@ -204,10 +228,14 @@ export default function NowPage() {
                       </div>
                     </div>
 
-                    {/* Category tag on one side, time on the other — same row. */}
+                    {/* Time on the right, category tag on the left — matching RTL
+                        reading order (the same convention used for the schedule page's
+                        day-navigation arrows). Previously the two were reversed,
+                        mirroring English's left-to-right convention instead. */}
                     <div
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}
                     >
+                      <span style={{ fontSize: 24, fontWeight: 900 }}>{event.time}</span>
                       <span
                         style={{
                           fontSize: 12,
@@ -218,9 +246,8 @@ export default function NowPage() {
                           color: 'var(--text-2)',
                         }}
                       >
-                        {TYPE_LABEL[event.type]}
+                        {labelForEvent(event)}
                       </span>
-                      <span style={{ fontSize: 24, fontWeight: 900 }}>{event.time}</span>
                     </div>
 
                     <div style={{ fontSize: 21, fontWeight: 900, lineHeight: 1.3, marginBottom: 10 }}>
@@ -235,11 +262,6 @@ export default function NowPage() {
                   </div>
                 </div>
               ))}
-            </div>
-
-            <div style={{ fontSize: 12.5, color: 'var(--text-3)', textAlign: 'center', marginTop: 6 }}>
-              {HE_DAYS[currentDate.getDay()]}
-              {isToday ? ' · היום' : ''}, {currentDate.getDate()} ב{HE_MONTHS[currentDate.getMonth()]}
             </div>
 
             {/* Small scroll/position dots, matching the prototype — a subtle indicator
