@@ -1,7 +1,7 @@
 'use client';
 
 import type { ScheduleEvent } from '@/lib/scheduleLogic';
-import { TYPE_LABEL, illustrationForEvent } from '@/lib/scheduleLogic';
+import { TYPE_LABEL, illustrationForEvent, labelForEvent } from '@/lib/scheduleLogic';
 import { IllustrationStage } from '@/components/Illustrations';
 import ActivityDetails from './ActivityDetails';
 
@@ -63,7 +63,7 @@ export default function ActivityPopup({
           <IllustrationStage kind={illustrationForEvent(event)} size={52} bg={TYPE_BG[event.type]} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-3)' }}>
-              {event.time} · {TYPE_LABEL[event.type]}
+              {event.time} · {labelForEvent(event)}
             </div>
             <div style={{ fontSize: 18, fontWeight: 900, lineHeight: 1.3 }}>{event.title}</div>
           </div>
