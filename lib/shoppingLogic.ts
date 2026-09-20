@@ -6,6 +6,63 @@ import type { Meal, UserSettings, ShoppingTrip, ShoppingTripItem } from './types
 import { mealIngredients } from './mealLogic';
 import type { GeneratedDay } from './menuLogic';
 
+// Some ingredients across the recipe pool are written slightly differently for the
+// same real product — different phrasing, or just a typo (מגורד vs מגורר, for
+// example) — which meant they never merged into one shopping-list line even though
+// they're the same thing to buy. This canonicalizes a name BEFORE it's used as the
+// merge key, without touching the underlying recipe data at all.
+function canonicalIngredientName(name: string): string {
+  // Every egg variant — plain, hard-boiled, organic — is still just "eggs" to buy.
+  if (/^ביצ/.test(name) || /^ביצה/.test(name)) return 'ביצים';
+  // "מגורד" and "מגורר" are the same word (grated) — normalize to one spelling.
+  let n = name.replace(/מגורד/g, 'מגורר');
+  // "תימין" is a common misspelling of "טימין" (thyme).
+  n = n.replace(/תימין/g, 'טימין');
+  // Unify cottage cheese phrasing.
+  if (/^קוטג׳/.test(n)) n = `גבינת ${n}`;
+  return n;
+}
+
+// A rough estimate of how many of a unit come in a typical package — only where this
+// is safe to assume. Returns a short parenthetical like "(2 חבילות)", or undefined
+// where no assumption is being made (most items: package sizes vary too much to guess
+// safely).
+function packageHint(canonicalName: string, totalQty: number, unit: string): string | undefined {
+  if (canonicalName === 'ביצים' && unit === 'יח׳') {
+    const packages = Math.ceil(totalQty / 12);
+    return `(${packages} חבי${packages === 1 ? 'לה' : 'לות'} של 12)`;
+  }
+  return undefined;
+}
+
+// Finer grouping within a produce/sprouts trip — vegetables, fruit, or leafy
+// greens/herbs/sprouts — purely for how the list is laid out, not which trip it's on.
+function produceSubcategory(name: string): 'ירקות' | 'פירות' | 'עלים ירוקים ונבטים' {
+  if (/חסה|תרד|עלים ירוק|^עלה |רוקט|פטרוזיליה|כוסברה|נענע|שמיר|נבט|חובזה|עלי סלרי|בזיליקום/.test(name)) {
+    return 'עלים ירוקים ונבטים';
+  }
+  if (/תפוח(?!\s*אדמה)|בננה|אגס|ענבים|קיווי|נקטרינה|תמר|אננס|פרי טרי|אבוקדו/.test(name)) {
+    return 'פירות';
+  }
+  return 'ירקות';
+}
+
+// Finer grouping within a pantry trip — spices (usually already on hand, listed so
+// it's easy to spot-check what's missing), nuts/seeds, oils, or legumes/grains.
+// Anything that doesn't clearly fit one of the four falls back to "אחר" rather than
+// being forced into the wrong bucket.
+function pantrySubcategory(name: string): 'תבלינים' | 'גרעינים ואגוזים' | 'שמנים' | 'קטניות ודגנים' | 'אחר' {
+  if (
+    /מלח|פלפל שחור|כמון|כורכום|קינמון|זעתר|פפריקה|קארי|עלה דפנה|טימין|חומץ|חרדל|רוטב סויה|אבקת/.test(name)
+  ) {
+    return 'תבלינים';
+  }
+  if (/שקד|אגוז|פקאן|גרעינ|זרעי/.test(name)) return 'גרעינים ואגוזים';
+  if (/^שמן/.test(name)) return 'שמנים';
+  if (/עדש|חומוס|קינואה|שעועית|כוסמת|אמרנט|דוחן|אורז|קטני|שיבולת שועל/.test(name)) return 'קטניות ודגנים';
+  return 'אחר';
+}
+
 interface ApprovedMeal {
   date: Date;
   meal: Meal;
@@ -97,9 +154,26 @@ export function buildShoppingPlan(
   const dairyTrips: Record<string, { date: Date; items: Record<string, ShoppingTripItem> }> = {};
   const pantryList: Record<string, ShoppingTripItem> = {};
 
-  const addIngredient = (bucket: Record<string, ShoppingTripItem>, name: string, qty: number, unit: string) => {
-    if (!bucket[name]) bucket[name] = { name, qty: 0, unit };
-    bucket[name].qty += qty;
+  // Shared by both the produce and sprouts branches below, so sprouts can check
+  // whether it's safe to just ride along with the same delivery as regular produce.
+  const produceDeliveryDateFor = (date: Date): Date =>
+    settings.produce_mode === 'cycle'
+      ? produceCycleDeliveryDate(date, settings.produce_cycle_days, monthAnchor, settings.veg_days)
+      : nextVegDeliveryOnOrAfter(date, settings.veg_days);
+
+  const addIngredient = (
+    bucket: Record<string, ShoppingTripItem>,
+    name: string,
+    qty: number,
+    unit: string,
+    subcategory?: string
+  ) => {
+    // Merge on the CANONICAL name (so "ביצים קשות" and "ביצים אורגניות" combine into
+    // one "ביצים" line) but keep that canonical form as the displayed name too — the
+    // person doesn't need to know which recipe's exact phrasing won.
+    const canonical = canonicalIngredientName(name);
+    if (!bucket[canonical]) bucket[canonical] = { name: canonical, qty: 0, unit, subcategory };
+    bucket[canonical].qty += qty;
   };
 
   approvedMeals.forEach(({ date, meal }) => {
@@ -111,18 +185,32 @@ export function buildShoppingPlan(
         if (!fishTrips[key]) fishTrips[key] = { date: new Date(date), items: {} };
         addIngredient(fishTrips[key].items, ing.name, ing.qty, ing.unit);
       } else if (ing.freshness === 'fresh-produce') {
-        const bucketDate =
-          settings.produce_mode === 'cycle'
-            ? produceCycleDeliveryDate(date, settings.produce_cycle_days, monthAnchor, settings.veg_days)
-            : nextVegDeliveryOnOrAfter(date, settings.veg_days);
+        const bucketDate = produceDeliveryDateFor(date);
         const key = bucketDate.toISOString().slice(0, 10);
         if (!produceTrips[key]) produceTrips[key] = { date: bucketDate, items: {} };
-        addIngredient(produceTrips[key].items, ing.name, ing.qty, ing.unit);
+        addIngredient(produceTrips[key].items, ing.name, ing.qty, ing.unit, produceSubcategory(ing.name));
       } else if (ing.freshness === 'fresh-sprouts') {
-        const bucketDate = deliveryDateForFastSpoiling(date, settings.veg_days, settings.sprout_max_age_days);
+        // Leafy greens/sprouts are bought together with regular vegetables in
+        // practice — try the SAME delivery date used for produce first, and only
+        // fall back to a separately-timed trip if that date would already be too old
+        // for something this perishable by the time it's actually cooked. This is
+        // checked up front (rather than merging two independently-computed trips
+        // after the fact), so the common case never creates a separate 'sprouts'
+        // trip at all — it just lands in the same produce trip directly.
+        const produceDate = produceDeliveryDateFor(date);
+        const ageIfShared = Math.floor((date.getTime() - produceDate.getTime()) / 86400000);
+        const canShareProduceTrip = ageIfShared <= settings.sprout_max_age_days;
+        const bucketDate = canShareProduceTrip
+          ? produceDate
+          : deliveryDateForFastSpoiling(date, settings.veg_days, settings.sprout_max_age_days);
         const key = bucketDate.toISOString().slice(0, 10);
-        if (!sproutTrips[key]) sproutTrips[key] = { date: bucketDate, items: {} };
-        addIngredient(sproutTrips[key].items, ing.name, ing.qty, ing.unit);
+        if (canShareProduceTrip) {
+          if (!produceTrips[key]) produceTrips[key] = { date: bucketDate, items: {} };
+          addIngredient(produceTrips[key].items, ing.name, ing.qty, ing.unit, produceSubcategory(ing.name));
+        } else {
+          if (!sproutTrips[key]) sproutTrips[key] = { date: bucketDate, items: {} };
+          addIngredient(sproutTrips[key].items, ing.name, ing.qty, ing.unit, produceSubcategory(ing.name));
+        }
       } else if (ing.freshness === 'freezer-meat') {
         const bucketDate = cycleBucketStart(date, settings.meat_batch_days, monthAnchor);
         const key = bucketDate.toISOString().slice(0, 10);
@@ -133,33 +221,42 @@ export function buildShoppingPlan(
         if (!dairyTrips[weekKey]) dairyTrips[weekKey] = { date: startOfWeek(date), items: {} };
         addIngredient(dairyTrips[weekKey].items, ing.name, ing.qty, ing.unit);
       } else if (ing.freshness === 'pantry') {
-        addIngredient(pantryList, ing.name, ing.qty, ing.unit);
+        addIngredient(pantryList, ing.name, ing.qty, ing.unit, pantrySubcategory(ing.name));
       }
     });
   });
 
+  // A short "(X חבילות)" hint is only added where package size is safe to assume
+  // (eggs, currently) — added here, once, after all quantities are finalized, rather
+  // than recomputed on every addIngredient call.
+  const withPackageHints = (items: Record<string, ShoppingTripItem>): ShoppingTripItem[] =>
+    Object.values(items).map((item) => ({
+      ...item,
+      note: packageHint(item.name, item.qty, item.unit),
+    }));
+
   const trips: ShoppingTrip[] = [];
   Object.values(fishTrips).forEach((t) =>
-    trips.push({ type: 'fish', date: t.date.toISOString().slice(0, 10), label: TRIP_LABELS.fish, items: Object.values(t.items) })
+    trips.push({ type: 'fish', date: t.date.toISOString().slice(0, 10), label: TRIP_LABELS.fish, items: withPackageHints(t.items) })
   );
   Object.values(produceTrips).forEach((t) =>
-    trips.push({ type: 'produce', date: t.date.toISOString().slice(0, 10), label: TRIP_LABELS.produce, items: Object.values(t.items) })
+    trips.push({ type: 'produce', date: t.date.toISOString().slice(0, 10), label: TRIP_LABELS.produce, items: withPackageHints(t.items) })
   );
   Object.values(sproutTrips).forEach((t) =>
-    trips.push({ type: 'sprouts', date: t.date.toISOString().slice(0, 10), label: TRIP_LABELS.sprouts, items: Object.values(t.items) })
+    trips.push({ type: 'sprouts', date: t.date.toISOString().slice(0, 10), label: TRIP_LABELS.sprouts, items: withPackageHints(t.items) })
   );
   Object.values(dairyTrips).forEach((t) =>
-    trips.push({ type: 'dairy', date: t.date.toISOString().slice(0, 10), label: TRIP_LABELS.dairy, items: Object.values(t.items) })
+    trips.push({ type: 'dairy', date: t.date.toISOString().slice(0, 10), label: TRIP_LABELS.dairy, items: withPackageHints(t.items) })
   );
   Object.values(meatTrips).forEach((t) =>
-    trips.push({ type: 'meat', date: t.date.toISOString().slice(0, 10), label: TRIP_LABELS.meat, items: Object.values(t.items) })
+    trips.push({ type: 'meat', date: t.date.toISOString().slice(0, 10), label: TRIP_LABELS.meat, items: withPackageHints(t.items) })
   );
   if (Object.keys(pantryList).length) {
     trips.push({
       type: 'pantry',
       date: monthAnchor.toISOString().slice(0, 10),
       label: TRIP_LABELS.pantry,
-      items: Object.values(pantryList),
+      items: withPackageHints(pantryList),
     });
   }
 
